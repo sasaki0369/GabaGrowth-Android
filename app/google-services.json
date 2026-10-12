@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "337987684766",
+    "firebase_url": "https://gabagrowth-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "gabagrowth",
+    "storage_bucket": "gabagrowth.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:337987684766:android:c3228e3d8102c5849cae8f",
+        "android_client_info": {
+          "package_name": "jp.gabagrowth.walk"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "337987684766-4d2a9ud7dhkndtis54got4v8re0mvpau.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAk9kR9uFRe2nheR0NdbXQev74s0Bj66gw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "337987684766-4d2a9ud7dhkndtis54got4v8re0mvpau.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
