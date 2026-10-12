@@ -1,9 +1,15 @@
-# Gaba Growth Android 2.1
+# Gaba Growth Android Ver.2.2
 
-This source ZIP is intended for GitHub Actions builds. Upload the **folder paths**, not flattened files. Replace the corresponding files in your existing `GabaGrowth-Android` repository.
+## Changes
+- Native launcher icon generated from the existing Gaba Growth icon.
+- WebView top navigation bar with a dedicated return button.
+- Status bar / navigation bar safe-area handling for Android 15+ edge-to-edge.
+- Existing audio playback and speech recognition retained.
 
-Changes: Japanese-first labels; en-US recognition with ready/listening status and readable error messages; embedded WebView for existing Gaba Growth PWA; background TTS walk service retained; SDK workflow fix retained.
+## GitHub upload
+Upload the contents of `app/` to the **same paths** in the GitHub repository. You can leave `.github/workflows/android-apk.yml` unchanged to avoid PAT workflow permission errors. Build using the existing Actions workflow.
 
-**Important limitations:** The embedded WebView has separate localStorage from Chrome; prior learning history is NOT automatically migrated. The native microphone test only works with the screen on. WebView microphone permission integration has not been implemented. The Android app build and device behavior have not been verified in this environment. Walk & Talk remains audio-only, without automatic speech recognition or AI feedback during screen-off.
+## Important
+GitHub Actions debug APK signatures may change across runs; if Android rejects an update, uninstall the previous prototype first. This deletes native app data. Production updates require a stable signing key.
 
-To build: Actions > Build Android APK > Run workflow, or commit files to main. Download artifact and install debug APK. If GitHub reports a build error, inspect the `Build debug APK` step.
+WebView and Chrome use separate storage. Existing Chrome learning records are not automatically imported. Screen-off speech recognition is not implemented yet.
