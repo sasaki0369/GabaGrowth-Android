@@ -19,8 +19,8 @@ public class MainActivity extends Activity {
  private void button(String title,Runnable task){Button b=new Button(this);b.setText(title);b.setAllCaps(false);root.addView(b);b.setOnClickListener(v->task.run());}
  @Override public void onCreate(Bundle state){super.onCreate(state);getWindow().setStatusBarColor(NAVY);getWindow().setNavigationBarColor(Color.rgb(240,243,248));
   root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(22,22,22,24);root.setBackgroundColor(Color.WHITE);
-  ScrollView scroll=new ScrollView(this);scroll.addView(root);setContentView(scroll);
-  label("Gaba Growth 2.1",28);label("Walk & Talk  |  English (US)",18);
+  ScrollView scroll=new ScrollView(this);scroll.addView(root);setContentView(scroll);applySafeInsets(scroll);
+  label("Gaba Growth 2.2",28);label("Walk & Talk  |  English (US)",18);
   label("通勤の徒歩10分を英会話の時間に。朝は復唱、帰りは質問練習。",14);
   button("☀  朝の10分 / Morning Walk",()->startWalk("morning",10));
   button("☾  帰りの10分 / Evening Walk",()->startWalk("evening",10));
@@ -63,14 +63,40 @@ public class MainActivity extends Activity {
   intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false);
   try{recognizer.startListening(intent);}catch(Exception e){recognizing=false;status.setText("Unable to start: "+e.getMessage());}
  }
+ private void applySafeInsets(View view){
+  if(Build.VERSION.SDK_INT>=30){
+   view.setOnApplyWindowInsetsListener((v,insets)->{
+    android.graphics.Insets sys=insets.getInsets(WindowInsets.Type.statusBars()|WindowInsets.Type.navigationBars()|WindowInsets.Type.displayCutout());
+    v.setPadding(0,sys.top,0,sys.bottom);
+    return insets;
+   });
+   view.requestApplyInsets();
+  }else{
+   view.setFitsSystemWindows(true);
+  }
+ }
+ private void returnToWalk(){
+  if(webView!=null){webView.stopLoading();webView.destroy();webView=null;}
+  recreate();
+ }
  private void openWeb(){
-  webView=new WebView(this);webView.getSettings().setJavaScriptEnabled(true);webView.getSettings().setDomStorageEnabled(true);
-  webView.setWebViewClient(new WebViewClient());webView.setWebChromeClient(new WebChromeClient());
-  LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);
-  Button back=new Button(this);back.setText("← Android Walk & Talk に戻る");back.setOnClickListener(v->{webView.destroy();webView=null;recreate();});
-  container.addView(back);container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));setContentView(container);
+  webView=new WebView(this);
+  webView.getSettings().setJavaScriptEnabled(true);
+  webView.getSettings().setDomStorageEnabled(true);
+  webView.setWebViewClient(new WebViewClient());
+  webView.setWebChromeClient(new WebChromeClient());
+  LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);container.setBackgroundColor(Color.WHITE);
+  LinearLayout toolbar=new LinearLayout(this);toolbar.setOrientation(LinearLayout.HORIZONTAL);toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setBackgroundColor(NAVY);
+  Button back=new Button(this);back.setText("← Walk & Talk に戻る");back.setAllCaps(false);
+  back.setOnClickListener(v->returnToWalk());
+  toolbar.addView(back,new LinearLayout.LayoutParams(-1,dp(54)));
+  container.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(58)));
+  container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));
+  setContentView(container);
+  applySafeInsets(container);
   webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/");
  }
- @Override public void onBackPressed(){if(webView!=null){if(webView.canGoBack()){webView.goBack();}else{webView.destroy();webView=null;recreate();}}else super.onBackPressed();}
+ private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+0.5f);}
+ @Override public void onBackPressed(){if(webView!=null){if(webView.canGoBack()){webView.goBack();}else{returnToWalk();}}else super.onBackPressed();}
  @Override public void onDestroy(){if(recognizer!=null){recognizer.cancel();recognizer.destroy();}if(webView!=null)webView.destroy();super.onDestroy();}
 }
