@@ -1,15 +1,7 @@
-# Gaba Growth Android Ver.2.2
+Gaba Growth Android 2.7: Google Sign-In (sasaki0369@gmail.com only).
 
-## Changes
-- Native launcher icon generated from the existing Gaba Growth icon.
-- WebView top navigation bar with a dedicated return button.
-- Status bar / navigation bar safe-area handling for Android 15+ edge-to-edge.
-- Existing audio playback and speech recognition retained.
+Important: Firebase Android app must have SHA-1 of the exact APK signing certificate registered, and google-services.json must be downloaded again after SHA registration. Google sign-in may fail with error 10 until that is done.
 
-## GitHub upload
-Upload the contents of `app/` to the **same paths** in the GitHub repository. You can leave `.github/workflows/android-apk.yml` unchanged to avoid PAT workflow permission errors. Build using the existing Actions workflow.
+GitHub Actions workflow included. To use stable release signing, configure GABA_KEYSTORE_BASE64, GABA_KEYSTORE_PASSWORD, GABA_KEY_ALIAS, GABA_KEY_PASSWORD as repository secrets. Debug fallback signing varies per runner and is not stable.
 
-## Important
-GitHub Actions debug APK signatures may change across runs; if Android rejects an update, uninstall the previous prototype first. This deletes native app data. Production updates require a stable signing key.
-
-WebView and Chrome use separate storage. Existing Chrome learning records are not automatically imported. Screen-off speech recognition is not implemented yet.
+Upload the full ZIP with folder paths preserved. Firebase Realtime Database rules are in firebase-rules.json and must be deployed manually.
