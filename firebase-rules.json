@@ -1,0 +1,19 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "gabaGrowth": {
+      "users": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid && auth.token.email === 'sasaki0369@gmail.com' && auth.token.email_verified === true && auth.token.firebase.sign_in_provider === 'google.com'",
+          ".write": "auth != null && auth.uid === $uid && auth.token.email === 'sasaki0369@gmail.com' && auth.token.email_verified === true && auth.token.firebase.sign_in_provider === 'google.com'",
+          "walkSessions": {
+            "$sessionId": {
+              ".validate": "newData.hasChildren(['id','startedAt','seconds']) && newData.child('id').val() === $sessionId && newData.child('seconds').isNumber() && newData.child('seconds').val() >= 0 && newData.child('seconds').val() <= 86400"
+            }
+          }
+        }
+      }
+    }
+  }
+}
