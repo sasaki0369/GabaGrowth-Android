@@ -33,14 +33,11 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Show signing certificate SHA-1
+      - name: Show APK signing certificate SHA-1
         run: |
-          keytool -list -v \
-            -keystore "$HOME/.android/debug.keystore" \
-            -alias androiddebugkey \
-            -storepass android \
-            -keypass android
-
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          keytool -printcert -jarfile "$APK"
+          
       - uses: actions/upload-artifact@v4
         with:
           name: GabaGrowth-Android-v2.7-debug
