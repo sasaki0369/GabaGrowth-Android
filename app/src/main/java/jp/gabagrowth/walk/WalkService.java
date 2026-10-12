@@ -1,19 +1,158 @@
 package jp.gabagrowth.walk;
-import android.app.*;import android.content.*;import android.os.*;import android.speech.tts.TextToSpeech;import java.util.*;
+
+import android.Manifest;
+import android.app.*;
+import android.content.*;
+import android.content.pm.PackageManager;
+import android.os.*;
+import android.speech.*;
+import android.speech.tts.*;
+import java.util.*;
+
+/** User-started, foreground walking session. Recognition is best effort: Android speech
+ * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START"; private TextToSpeech tts; private Handler h=new Handler(Looper.getMainLooper()); private int i=0;private boolean active=false;private String[] lines;
- private final String[] morning={"Welcome to your morning walk. Listen and repeat.","How do you maintain aging infrastructure?","How do you prioritise road maintenance?","Could you give me a specific example?","How do you share data across organisations?","What are the biggest challenges?"};
- private final String[] evening={"Welcome back. Let's practise your questions.","How do you use digital technology in maintenance?","How do you measure cost savings?","Could you explain that in more detail?","How do local councils work together?","Thank you for sharing your experience."};
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS";
+ private static final String CHANNEL="walk";
+ private final Handler handler=new Handler(Looper.getMainLooper());
+ private TextToSpeech tts;
+ private SpeechRecognizer recognizer;
+ private boolean ready=false, active=false, conversation=false, listening=false;
+ private int index=0, errors=0, successes=0, recognitionGeneration=0;
+ private long endAt=0, sessionStartedAt=0;
+ private String sessionId=""; private int prompts=0; private boolean sessionSaved=false;
+ private String mode="morning";
+ private final String[] morning={
+  "How do you manage aging infrastructure?",
+  "How do you decide which roads to repair first?",
+  "Could you give me a specific example?",
+  "How do government agencies share infrastructure data?",
+  "What are the biggest challenges for local councils?",
+  "How do you measure the benefits of digital technology?"};
+ private final String[] evening={
+  "We would like to learn about your infrastructure management approach.",
+  "How do you use digital technology to reduce maintenance costs?",
+  "Could you explain how different councils work together?",
+  "How do you prioritize infrastructure investment?",
+  "What results have you achieved so far?",
+  "Thank you. That is very helpful."};
  @Override public void onCreate(){super.onCreate();tts=new TextToSpeech(this,this);}
- @Override public int onStartCommand(Intent in,int flags,int id){if(in!=null&&STOP.equals(in.getAction())){stopSelf();return START_NOT_STICKY;}
- String mode=in==null?"morning":in.getStringExtra("mode");int minutes=in==null?10:in.getIntExtra("minutes",10);lines="evening".equals(mode)?evening:morning;
- NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);nm.createNotificationChannel(new NotificationChannel("walk","Walk & Talk",NotificationManager.IMPORTANCE_LOW));
- Intent stop=new Intent(this,WalkService.class).setAction(STOP);PendingIntent pi=PendingIntent.getService(this,0,stop,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
- Notification n=new Notification.Builder(this,"walk").setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("Gaba Growth Walk & Talk").setContentText("Audio practice playing").addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause,"Stop",pi).build()).build();startForeground(10,n);
- active=true;i=0;h.removeCallbacksAndMessages(null);long end=SystemClock.elapsedRealtime()+minutes*60000L;loop(end);return START_NOT_STICKY;}
- private void loop(long end){if(!active)return;if(SystemClock.elapsedRealtime()>=end){tts.speak("Well done. Your walk is complete.",TextToSpeech.QUEUE_FLUSH,null,"end");h.postDelayed(this::stopSelf,3500);return;}
- String s=lines[i++%lines.length];if(tts!=null){tts.speak(s,TextToSpeech.QUEUE_FLUSH,null,"line"+i);}h.postDelayed(()->loop(end),Math.max(6500,Math.min(11000,s.length()*115L+4200)));}
- @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){tts.setLanguage(Locale.US);tts.setSpeechRate(0.86f);}}
- @Override public void onDestroy(){active=false;h.removeCallbacksAndMessages(null);if(tts!=null){tts.stop();tts.shutdown();}super.onDestroy();}
- @Override public android.os.IBinder onBind(Intent in){return null;}
+ @Override public int onStartCommand(Intent intent,int flags,int startId){
+  if(intent!=null&&STOP.equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
+  stopSession();
+  mode=intent==null?"morning":intent.getStringExtra("mode");
+  if(mode==null)mode="morning";
+  int minutes=intent==null?10:intent.getIntExtra("minutes",10);
+  conversation=intent!=null&&intent.getBooleanExtra("conversation",false);
+  endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
+  active=true;index=0;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
+  NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+  nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Walk & Talk",NotificationManager.IMPORTANCE_LOW));
+  Intent stop=new Intent(this,WalkService.class).setAction(STOP);
+  PendingIntent stopPi=PendingIntent.getService(this,1,stop,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+  Intent open=new Intent(this,MainActivity.class);
+  PendingIntent openPi=PendingIntent.getActivity(this,2,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+  Notification notification=new Notification.Builder(this,CHANNEL)
+   .setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("Gaba Growth · Walk & Talk")
+   .setContentText(conversation?"Voice conversation · listening and speaking":"Listen and repeat")
+   .setContentIntent(openPi)
+   .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_pause,"Stop",stopPi).build())
+   .setOngoing(true).build();
+  int type=android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
+  if(conversation&&Build.VERSION.SDK_INT>=30)type|=android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+  if(Build.VERSION.SDK_INT>=29)startForeground(10,notification,type);else startForeground(10,notification);
+  report("Started: "+(conversation?"conversation":"repeat"));
+  if(ready)handler.postDelayed(this::next,700);
+  return START_NOT_STICKY;
+ }
+ private String[] lines(){return "evening".equals(mode)?evening:morning;}
+ private void next(){
+  if(!active)return;
+  if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
+  String phrase=lines()[index++%lines().length];prompts++;
+  report("Listen: "+phrase);
+  speak(phrase,()->{
+   if(!active)return;
+   if(conversation){speak("Your turn.",()->handler.postDelayed(this::listen,400));}
+   else handler.postDelayed(this::next,Math.max(4200,phrase.length()*85L));
+  });
+ }
+ private void speak(String phrase,Runnable done){
+  if(tts==null||!ready){handler.postDelayed(()->{if(active)speak(phrase,done);},500);return;}
+  String utterance="walk-"+SystemClock.elapsedRealtime();
+  tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
+   @Override public void onStart(String id){}
+   @Override public void onDone(String id){if(utterance.equals(id))handler.post(done);}
+   @Override public void onError(String id){if(utterance.equals(id))handler.post(done);}
+  });
+  tts.speak(phrase,TextToSpeech.QUEUE_FLUSH,null,utterance);
+ }
+ private void listen(){
+  if(!active||!conversation)return;
+  if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
+  if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){report("Microphone permission missing; switching to repeat mode");conversation=false;next();return;}
+  if(!SpeechRecognizer.isRecognitionAvailable(this)){report("Speech service unavailable; switching to repeat mode");conversation=false;next();return;}
+  releaseRecognizer();
+  try{
+   recognizer=SpeechRecognizer.createSpeechRecognizer(this);
+   recognizer.setRecognitionListener(new RecognitionListener(){
+    public void onReadyForSpeech(Bundle b){report("Listening · speak English now");}
+    public void onBeginningOfSpeech(){report("Hearing your answer…");}
+    public void onRmsChanged(float f){}public void onBufferReceived(byte[] b){}
+    public void onEndOfSpeech(){report("Processing your answer…");}
+    public void onError(int code){
+     listening=false;releaseRecognizer();if(!active)return;
+     errors++;report("Recognition error "+code+" · continuing");
+     if(errors>=3){conversation=false;report("Microphone unavailable · switched to repeat mode");}
+     handler.postDelayed(()->{if(active)next();},1600);
+    }
+    public void onResults(Bundle b){
+     listening=false;ArrayList<String> words=b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+     String answer=words==null||words.isEmpty()?"":words.get(0);
+     releaseRecognizer();if(!active)return;
+     errors=0;successes++;report("You said: "+answer);
+     handler.postDelayed(()->{if(active)next();},1600);
+    }
+    public void onPartialResults(Bundle b){}public void onEvent(int type,Bundle b){}
+   });
+   Intent request=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+   request.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+   request.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"en-US");
+   request.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,"en-US");
+   request.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,1);
+   request.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,1300L);
+   request.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,1100L);
+   listening=true;int generation=++recognitionGeneration;recognizer.startListening(request);
+   handler.postDelayed(()->{if(active&&listening&&generation==recognitionGeneration){report("No response · moving on");releaseRecognizer();handler.postDelayed(this::next,700);}},12500);
+  }catch(Exception ex){releaseRecognizer();errors++;report("Recognizer unavailable: "+ex.getClass().getSimpleName());if(errors>=3)conversation=false;handler.postDelayed(this::next,1800);}
+ }
+ private void finish(){saveSession("completed");active=false;releaseRecognizer();report("Completed · "+successes+" spoken answers");if(ready&&tts!=null)tts.speak("Great work. Your walk is complete.",TextToSpeech.QUEUE_FLUSH,null,"complete");handler.postDelayed(this::stopSelf,3500);}
+ private void saveSession(String outcome){
+  if(!active||sessionSaved||sessionStartedAt<=0)return;
+  sessionSaved=true;
+  long elapsed=Math.max(0,System.currentTimeMillis()-sessionStartedAt);
+  // Discard accidental taps shorter than 15 seconds.
+  if(elapsed<15000)return;
+  try{
+   org.json.JSONObject item=new org.json.JSONObject();
+   item.put("id",sessionId);item.put("startedAt",sessionStartedAt);
+   item.put("endedAt",System.currentTimeMillis());item.put("seconds",elapsed/1000);
+   item.put("mode",mode);item.put("conversation",conversation);
+   item.put("prompts",prompts);item.put("spokenAnswers",successes);
+   item.put("outcome",outcome);item.put("source","android-walk");
+   android.content.SharedPreferences prefs=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);
+   org.json.JSONArray rows=new org.json.JSONArray(prefs.getString("sessions","[]"));
+   rows.put(item);
+   org.json.JSONArray recent=new org.json.JSONArray();
+   for(int i=Math.max(0,rows.length()-500);i<rows.length();i++)recent.put(rows.getJSONObject(i));
+   prefs.edit().putString("sessions",recent.toString()).apply();
+   if(new FirebaseSync(this).hasLogin())new FirebaseSync(this).syncNow(null);
+  }catch(Exception ex){android.util.Log.e("GabaGrowth","Unable to save walk",ex);}
+ }
+ private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
+ private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
+ private void stopSession(){saveSession("stopped");active=false;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
+ @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;tts.setLanguage(Locale.US);tts.setSpeechRate(0.87f);if(active)handler.post(this::next);}else report("Text-to-speech initialization failed");}
+ @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();super.onDestroy();}
+ @Override public IBinder onBind(Intent intent){return null;}
 }
