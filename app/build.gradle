@@ -1,5 +1,27 @@
 plugins { id 'com.android.application' }
 android { namespace 'jp.gabagrowth.walk'; compileSdk 35
- defaultConfig { applicationId 'jp.gabagrowth.walk'; minSdk 26; targetSdk 35; versionCode 22; versionName '2.2' }
+ defaultConfig { applicationId 'jp.gabagrowth.walk'; minSdk 26; targetSdk 35; versionCode 27; versionName '2.7' }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
+
+// Fixed signing key is supplied by GitHub Actions secrets; never commit the keystore.
+def keyPath = System.getenv('GABA_KEYSTORE_PATH')
+def keyPass = System.getenv('GABA_KEYSTORE_PASSWORD')
+def signingAliasValue = System.getenv('GABA_KEY_ALIAS')
+def aliasPass = System.getenv('GABA_KEY_PASSWORD')
+if (keyPath && keyPass && signingAliasValue && aliasPass) {
+    android.signingConfigs {
+        stable {
+            storeFile file(keyPath)
+            storePassword keyPass
+            keyAlias signingAliasValue
+            keyPassword aliasPass
+        }
+    }
+    android.buildTypes.release {
+        signingConfig android.signingConfigs.stable
+        minifyEnabled false
+    }
+}
+
+ dependencies { implementation 'com.google.android.gms:play-services-auth:21.3.0' }
