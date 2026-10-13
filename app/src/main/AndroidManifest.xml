@@ -7,7 +7,15 @@
  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
  <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>
  <application android:label="Gaba Growth" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false">
-  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+   <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+   <intent-filter>
+    <action android:name="android.intent.action.VIEW"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+    <category android:name="android.intent.category.BROWSABLE"/>
+    <data android:scheme="gabagrowth" android:host="walk"/>
+   </intent-filter>
+  </activity>
   <service android:name=".WalkService" android:exported="false" android:foregroundServiceType="mediaPlayback|microphone"/>
  </application>
 </manifest>
