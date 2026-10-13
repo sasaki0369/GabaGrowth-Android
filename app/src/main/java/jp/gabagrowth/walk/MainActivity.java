@@ -25,7 +25,7 @@ public class MainActivity extends Activity {
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(NAVY);getWindow().setNavigationBarColor(Color.rgb(240,243,248));
   root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(22,22,22,24);root.setBackgroundColor(Color.WHITE);
   ScrollView scroll=new ScrollView(this);scroll.addView(root);setContentView(scroll);applySafeInsets(scroll);
-  label("Gaba Growth 2.7",28);label("Walk & Talk  |  English (US)",18);
+  label("Gaba Growth 2.8",28);label("Walk & Talk  |  English (US)",18);
   label("通勤の徒歩10分を英会話の時間に。朝は復唱、帰りは質問練習。",14);
   button("☀  朝の10分 / Morning Walk",()->startWalk("morning",10));
   button("☾  帰りの10分 / Evening Walk",()->startWalk("evening",10));
@@ -140,7 +140,21 @@ public class MainActivity extends Activity {
   webView=new WebView(this);
   webView.getSettings().setJavaScriptEnabled(true);
   webView.getSettings().setDomStorageEnabled(true);
-  webView.setWebViewClient(new WebViewClient());
+   webView.setWebViewClient(new WebViewClient(){
+    @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request){
+     android.net.Uri uri=request.getUrl();
+     if("gabagrowth".equalsIgnoreCase(uri.getScheme()) && "walk".equalsIgnoreCase(uri.getHost())){
+      runOnUiThread(()->returnToWalk());return true;
+     }
+     return false;
+    }
+    @Override public boolean shouldOverrideUrlLoading(WebView view, String url){
+     if(url!=null && url.startsWith("gabagrowth://walk")){
+      runOnUiThread(()->returnToWalk());return true;
+     }
+     return false;
+    }
+   });
   webView.setWebChromeClient(new WebChromeClient());
   LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);container.setBackgroundColor(Color.WHITE);
   LinearLayout toolbar=new LinearLayout(this);toolbar.setOrientation(LinearLayout.HORIZONTAL);toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setBackgroundColor(NAVY);
@@ -153,6 +167,16 @@ public class MainActivity extends Activity {
   applySafeInsets(container);
   webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/");
  }
+  @Override protected void onNewIntent(Intent intent){
+   super.onNewIntent(intent);
+   setIntent(intent);
+   if(intent!=null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null
+      && "gabagrowth".equalsIgnoreCase(intent.getData().getScheme())
+      && "walk".equalsIgnoreCase(intent.getData().getHost())){
+    if(webView!=null) returnToWalk();
+   }
+  }
+
  private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+0.5f);}
  @Override public void onBackPressed(){if(webView!=null){if(webView.canGoBack()){webView.goBack();}else{returnToWalk();}}else super.onBackPressed();}
  @Override public void onDestroy(){if(recognizer!=null){recognizer.cancel();recognizer.destroy();}if(webView!=null)webView.destroy();super.onDestroy();}
