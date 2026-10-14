@@ -24,7 +24,9 @@ public class MainActivity extends Activity {
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
- private LinearLayout section;
+ private TextView spokenText, answerText, playbackState, speedLabel; private SeekBar speedSlider; private boolean receiverRegistered=false;
+ private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));}};
+ private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
  private void button(String title,Runnable task){TextView b=new TextView(this);b.setText(title);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER_VERTICAL);b.setPadding(dp(18),0,dp(12),0);GradientDrawable bg=gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18);b.setBackground(bg);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(64));lp.setMargins(0,0,0,dp(10));section.addView(b,lp);b.setOnClickListener(v->task.run());}
@@ -35,7 +37,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.0  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.2  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -46,6 +48,24 @@ public class MainActivity extends Activity {
   button("☀   朝の10分 / Morning Walk",()->startWalk("morning",10));
   button("☾   帰りの10分 / Evening Walk",()->startWalk("evening",10));
   button("▶   今日は3分だけ / Easy Day",()->startWalk("morning",3));
+  card("🔊  Playback speed / 再生速度");
+  speedLabel=label("",16);
+  speedSlider=new SeekBar(this);speedSlider.setMax(12);section.addView(speedSlider);
+  int stored=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("speed_step",4);
+  speedSlider.setProgress(Math.max(0,Math.min(12,stored)));
+  updateSpeedLabel(stored);
+  speedSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+   public void onProgressChanged(SeekBar b,int progress,boolean fromUser){updateSpeedLabel(progress);if(fromUser){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt("speed_step",progress).apply();Intent i=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_SPEED);i.putExtra("speed",speedValue(progress));startService(i);}}
+   public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+  });
+  label("0.6×〜1.8×（0.1刻み）。次の発話から反映されます。",12);
+  card("📝  Spoken English / 音声テキスト");
+  label("再生中の英文と、会話モードで認識した自分の発言を表示します。",13);
+  heading("Now speaking / 再生中");
+  spokenText=label("学習を開始すると英文が表示されます。",18);
+  heading("Your answer / あなたの発言");
+  answerText=label("会話モードで発言すると認識結果が表示されます。",16);
+  playbackState=label("Ready",13);
   card("🎙  Conversation");
   button("朝の会話10分 / Morning Conversation",()->startConversation("morning",10));
   button("帰りの会話10分 / Evening Conversation",()->startConversation("evening",10));
@@ -61,16 +81,21 @@ public class MainActivity extends Activity {
   button("学習記録を共有（JSON）",this::shareWalkHistory);
   card("☁  Cloud sync");
   label("GoogleアカウントでログインするとWeb版と徒歩学習記録を同期します。",13);
-  button("Googleでログイン",this::showGoogleLogin);
-  button("今すぐ同期",()->firebase.syncNow(this::syncMessage));
-  button("ログアウト",()->{firebase.logout();syncMessage("ログアウトしました");});
+  loginStatus=label("",14);
+  loginActions=new LinearLayout(this);loginActions.setOrientation(LinearLayout.VERTICAL);section.addView(loginActions);
+  addLoginButton("Googleでログイン",this::showGoogleLogin);
+  addLoginButton("今すぐ同期",()->firebase.syncNow(this::syncMessage));
+  addLoginButton("ログアウト",()->{firebase.logout();refreshLoginUI();syncMessage("ログアウトしました");});
+  refreshLoginUI();
   card("🌐  Gaba Growth");
   button("学習管理へ / Learning dashboard",this::openWeb);
   label("歩行中は画面を操作しないでください。会話モードの画面オフ認識は端末によって停止する場合があります。",12);
   if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},7);
   openWeb();
  }
- private void syncMessage(String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Gaba Growth 同期").setMessage(message).setPositiveButton("OK",null).show());}
+ private void addLoginButton(String text,Runnable action){TextView b=new TextView(this);b.setText(text);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setPadding(dp(18),dp(16),dp(12),dp(16));b.setBackground(gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(10));loginActions.addView(b,lp);b.setOnClickListener(v->action.run());}
+ private void refreshLoginUI(){if(loginStatus==null||loginActions==null)return;boolean logged=firebase.hasLogin();loginStatus.setText(logged?"✓ Googleログイン済み · 学習記録の同期が利用できます":"未ログイン · Googleアカウントでログインしてください");loginActions.getChildAt(0).setVisibility(logged?View.GONE:View.VISIBLE);loginActions.getChildAt(1).setVisibility(logged?View.VISIBLE:View.GONE);loginActions.getChildAt(2).setVisibility(logged?View.VISIBLE:View.GONE);}
+ private void syncMessage(String message){refreshLoginUI();runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Gaba Growth 同期").setMessage(message).setPositiveButton("OK",null).show());}
  private void showGoogleLogin(){
   GoogleSignInOptions options=new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestIdToken(GOOGLE_WEB_CLIENT_ID).build();
   GoogleSignInClient client=GoogleSignIn.getClient(this,options);
@@ -83,9 +108,11 @@ public class MainActivity extends Activity {
    GoogleSignInAccount account=GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException.class);
    if(account==null||!"sasaki0369@gmail.com".equalsIgnoreCase(account.getEmail())){syncMessage("このGoogleアカウントは利用できません");return;}
    String idToken=account.getIdToken();if(idToken==null){syncMessage("Google IDトークンを取得できません。FirebaseのSHA-1登録をご確認ください。");return;}
-   firebase.loginWithGoogleIdToken(idToken,this::syncMessage);
+   firebase.loginWithGoogleIdToken(idToken,message->{refreshLoginUI();syncMessage(message);});
   }catch(ApiException e){syncMessage("Googleログインエラー: "+e.getStatusCode()+"。SHA-1とOAuth設定をご確認ください。");}
  }
+ private float speedValue(int step){return 0.6f+Math.max(0,Math.min(12,step))*0.1f;}
+ private void updateSpeedLabel(int step){if(speedLabel!=null)speedLabel.setText(String.format(Locale.US,"Speech speed: %.1f×",speedValue(step)));}
  private void startWalk(String mode,int minutes){Intent i=new Intent(this,WalkService.class);i.putExtra("mode",mode);i.putExtra("minutes",minutes);startForegroundService(i);Toast.makeText(this,"Walk & Talk started",Toast.LENGTH_SHORT).show();}
  private void startConversation(String mode,int minutes){
   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
@@ -176,11 +203,11 @@ public class MainActivity extends Activity {
   LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setPadding(dp(10),dp(8),dp(10),dp(8));bar.setBackgroundColor(Color.rgb(10,46,83));
   TextView walk=new TextView(this);walk.setText("🎧 Walk & Talk");walk.setTextColor(Color.WHITE);walk.setTypeface(null,Typeface.BOLD);walk.setTextSize(16);walk.setGravity(Gravity.CENTER);walk.setBackground(gradient(Color.rgb(21,105,174),Color.rgb(0,151,151),14));
   bar.addView(walk,new LinearLayout.LayoutParams(0,dp(48),1));walk.setOnClickListener(v->showNativeWalk());
-  TextView browser=new TextView(this);browser.setText("↗ Browser");browser.setTextColor(Color.WHITE);browser.setTextSize(13);browser.setGravity(Gravity.CENTER);
+  TextView browser=new TextView(this);browser.setText("↗ Chrome");browser.setTextColor(Color.WHITE);browser.setTextSize(13);browser.setGravity(Gravity.CENTER);
   bar.addView(browser,new LinearLayout.LayoutParams(dp(100),dp(48)));browser.setOnClickListener(v->startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://sasaki0369.github.io/GabaGrowth/"))));
   container.addView(bar);container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));
   webContainer=container;setContentView(container);applySafeInsets(container);
-  webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/?embedded=android");
+  webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/?embedded=android&v=31");
  }
  private void showNativeWalk(){
   if(nativeWalkScreen!=null){
@@ -188,7 +215,9 @@ public class MainActivity extends Activity {
    setContentView(nativeWalkScreen);applySafeInsets(nativeWalkScreen);
   }
  }
-  @Override protected void onNewIntent(Intent intent){
+  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));}
+ @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(walkUpdates);receiverRegistered=false;}super.onPause();}
+ @Override protected void onNewIntent(Intent intent){
    super.onNewIntent(intent);
    setIntent(intent);
    if(intent!=null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null
@@ -199,6 +228,6 @@ public class MainActivity extends Activity {
   }
 
  private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+0.5f);}
- @Override public void onBackPressed(){if(webView!=null && webView.isShown()){if(webView.canGoBack())webView.goBack();else showNativeWalk();}else if(webView!=null)openWeb();else super.onBackPressed();}
+ @Override public void onBackPressed(){if(webView!=null && webView.isShown()){if(webView.canGoBack())webView.goBack();else new AlertDialog.Builder(this).setMessage("Gaba Growthを終了しますか？").setNegativeButton("キャンセル",null).setPositiveButton("終了",(d,w)->finish()).show();}else if(webView!=null)openWeb();else super.onBackPressed();}
  @Override public void onDestroy(){if(recognizer!=null){recognizer.cancel();recognizer.destroy();}if(webView!=null)webView.destroy();super.onDestroy();}
 }
