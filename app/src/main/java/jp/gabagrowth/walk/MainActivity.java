@@ -19,7 +19,7 @@ import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.tasks.Task;
 
 public class MainActivity extends Activity {
- private static final int GOOGLE_SIGN_IN=912;
+ private static final int GOOGLE_SIGN_IN=912, CSV_IMPORT=913;
  private static final String GOOGLE_WEB_CLIENT_ID="337987684766-4d2a9ud7dhkndtis54got4v8re0mvpau.apps.googleusercontent.com";
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
@@ -37,14 +37,26 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.4  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.5  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
   root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(16),dp(18),dp(16),dp(30));root.setBackgroundColor(Color.rgb(235,245,251));
   ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);nativeWalkScreen=scroll;setContentView(scroll);applySafeInsets(scroll);
   hero();
+  card("📚  NSW Q&A教材 / CSV Import");
+  label("添付CSVと同じ15列のフォーマットに対応。初期教材230件を収録。",13);
+  button("CSVファイルを取り込む / Import CSV",()->{Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);pick.addCategory(Intent.CATEGORY_OPENABLE);pick.setType("text/*");pick.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"text/csv","text/comma-separated-values","text/plain","application/vnd.ms-excel"});startActivityForResult(pick,CSV_IMPORT);});
+  label("訪問先・週・練習方向を選び、Walk & Talkで質問と回答を練習できます。",13);
   card("🎧  Walk & Talk");
+  label("教材: NSW Q&A / 取り込んだCSV",14);
+  android.widget.Spinner qaOrg=new android.widget.Spinner(this);section.addView(qaOrg);
+  java.util.ArrayList<String> orgs=new java.util.ArrayList<>();orgs.add("ALL");orgs.add("COMMON");try{org.json.JSONArray a=QaBank.load(this);for(int k=0;k<a.length();k++){String v=a.getJSONObject(k).optString("organization");if(!orgs.contains(v))orgs.add(v);}}catch(Exception ignored){}
+  qaOrg.setAdapter(new android.widget.ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,orgs));
+  qaOrg.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){}public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){getSharedPreferences(QaBank.PREF,MODE_PRIVATE).edit().putString("organization",orgs.get(pos)).apply();}});
+  android.widget.Spinner qaWeek=new android.widget.Spinner(this);section.addView(qaWeek);java.util.ArrayList<String> weeks=new java.util.ArrayList<>();weeks.add("ALL WEEKS");for(int w=1;w<=12;w++)weeks.add("Week "+w);qaWeek.setAdapter(new android.widget.ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,weeks));qaWeek.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){}public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){getSharedPreferences(QaBank.PREF,MODE_PRIVATE).edit().putString("week",pos==0?"":String.valueOf(pos)).apply();}});
+  android.widget.Spinner qaDirection=new android.widget.Spinner(this);section.addView(qaDirection);String[] directions={"質問する / Ask","回答する / Answer","両方 / Both"};qaDirection.setAdapter(new android.widget.ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,directions));qaDirection.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){}public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){getSharedPreferences(QaBank.PREF,MODE_PRIVATE).edit().putString("direction",pos==0?"ask":pos==1?"answer":"both").apply();}});
+
   button("☀   朝の10分 / Morning Walk",()->startWalk("morning",10));
   button("☾   帰りの10分 / Evening Walk",()->startWalk("evening",10));
   button("▶   今日は3分だけ / Easy Day",()->startWalk("morning",3));
@@ -105,6 +117,7 @@ public class MainActivity extends Activity {
  }
  @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
   super.onActivityResult(requestCode,resultCode,data);
+  if(requestCode==CSV_IMPORT){if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){try(java.io.InputStream in=getContentResolver().openInputStream(data.getData());java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)out.write(b,0,n);org.json.JSONArray qa=QaBank.parse(out.toString("UTF-8"));QaBank.save(this,qa);new AlertDialog.Builder(this).setTitle("CSV Import").setMessage(qa.length()+"件を取り込みました。訪問先の選択肢を更新するにはアプリを開き直してください。").setPositiveButton("OK",null).show();}catch(Exception e){new AlertDialog.Builder(this).setTitle("CSV Import error").setMessage(e.getMessage()).setPositiveButton("OK",null).show();}}return;}
   if(requestCode!=GOOGLE_SIGN_IN)return;
   try{
    GoogleSignInAccount account=GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException.class);
