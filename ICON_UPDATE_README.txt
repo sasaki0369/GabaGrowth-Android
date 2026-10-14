@@ -1,0 +1,1 @@
+Android v2.10: icon resources updated (headset/night Sydney); versionCode 30. Upload source files into existing repository preserving .github/workflows and app/google-services.json. Do not replace stable signing secrets. Build signed APK using existing GitHub Actions workflow.
