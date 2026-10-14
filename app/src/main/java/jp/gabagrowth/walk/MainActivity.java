@@ -176,11 +176,6 @@ public class MainActivity extends Activity {
    });
   webView.setWebChromeClient(new WebChromeClient());
   LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);container.setBackgroundColor(Color.WHITE);
-  LinearLayout toolbar=new LinearLayout(this);toolbar.setOrientation(LinearLayout.HORIZONTAL);toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setBackgroundColor(NAVY);
-  Button back=new Button(this);back.setText("← Walk & Talk に戻る");back.setAllCaps(false);
-  back.setOnClickListener(v->returnToWalk());
-  toolbar.addView(back,new LinearLayout.LayoutParams(-1,dp(54)));
-  container.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(58)));
   container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));
   setContentView(container);
   applySafeInsets(container);
