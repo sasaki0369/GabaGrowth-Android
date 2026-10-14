@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.2  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.3  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -91,7 +91,7 @@ public class MainActivity extends Activity {
   button("学習管理へ / Learning dashboard",this::openWeb);
   label("歩行中は画面を操作しないでください。会話モードの画面オフ認識は端末によって停止する場合があります。",12);
   if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},7);
-  openWeb();
+  showNativeWalk(); // Open native Walk & Talk on launch
  }
  private void addLoginButton(String text,Runnable action){TextView b=new TextView(this);b.setText(text);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setPadding(dp(18),dp(16),dp(12),dp(16));b.setBackground(gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(10));loginActions.addView(b,lp);b.setOnClickListener(v->action.run());}
  private void refreshLoginUI(){if(loginStatus==null||loginActions==null)return;boolean logged=firebase.hasLogin();loginStatus.setText(logged?"✓ Googleログイン済み · 学習記録の同期が利用できます":"未ログイン · Googleアカウントでログインしてください");loginActions.getChildAt(0).setVisibility(logged?View.GONE:View.VISIBLE);loginActions.getChildAt(1).setVisibility(logged?View.VISIBLE:View.GONE);loginActions.getChildAt(2).setVisibility(logged?View.VISIBLE:View.GONE);}
