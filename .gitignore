@@ -1,0 +1,5 @@
+*.jks
+*.keystore
+*base64*.txt
+.gradle/
+app/build/
