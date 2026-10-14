@@ -22,7 +22,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private int index=0, errors=0, successes=0, recognitionGeneration=0;
  private long endAt=0, sessionStartedAt=0;
  private String sessionId=""; private int prompts=0; private boolean sessionSaved=false;
- private String mode="morning";
+ private String mode="morning"; private org.json.JSONArray qaItems=new org.json.JSONArray();
  private final String[] morning={
   "How do you manage aging infrastructure?",
   "How do you decide which roads to repair first?",
@@ -49,6 +49,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   int minutes=intent==null?10:intent.getIntExtra("minutes",10);
   conversation=intent!=null&&intent.getBooleanExtra("conversation",false);
   endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
+  qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.load(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week"))))qaItems.put(q);}}catch(Exception ignored){}
   active=true;index=0;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Walk & Talk",NotificationManager.IMPORTANCE_LOW));
@@ -74,8 +75,10 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private void next(){
   if(!active)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
-  String phrase=lines()[index++%lines().length];prompts++;
-  reportText("phrase",phrase);reportText("translation",translate(phrase));reportText("answer","—");report("再生中 / Speaking");
+  String phrase,translation;String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
+  if(qaItems.length()>0){org.json.JSONObject q=qaItems.optJSONObject(index%qaItems.length());boolean useAnswer="answer".equals(direction)||("both".equals(direction)&&(index%2==1));phrase=q.optString(useAnswer?"answer_en":"question_en");translation=q.optString(useAnswer?"answer_ja":"question_ja");index++;}
+  else{phrase=lines()[index++%lines().length];translation=translate(phrase);}prompts++;
+  reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");report("再生中 / Speaking");
   speak(phrase,()->{
    if(!active)return;
    if(conversation){speak("Your turn.",()->handler.postDelayed(this::listen,400));}
