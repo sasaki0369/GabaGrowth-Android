@@ -6,6 +6,9 @@ import android.os.*;
 import android.content.*;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.Drawable;
 import android.speech.*;
 import android.view.*;
 import android.webkit.*;
@@ -20,34 +23,50 @@ public class MainActivity extends Activity {
  private static final String GOOGLE_WEB_CLIENT_ID="337987684766-4d2a9ud7dhkndtis54got4v8re0mvpau.apps.googleusercontent.com";
  private FirebaseSync firebase; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
- private TextView label(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(6,14,6,14);root.addView(t);return t;}
- private void button(String title,Runnable task){Button b=new Button(this);b.setText(title);b.setAllCaps(false);root.addView(b);b.setOnClickListener(v->task.run());}
- @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(NAVY);getWindow().setNavigationBarColor(Color.rgb(240,243,248));
-  root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(22,22,22,24);root.setBackgroundColor(Color.WHITE);
-  ScrollView scroll=new ScrollView(this);scroll.addView(root);setContentView(scroll);applySafeInsets(scroll);
-  label("Gaba Growth 2.8",28);label("Walk & Talk  |  English (US)",18);
-  label("通勤の徒歩10分を英会話の時間に。朝は復唱、帰りは質問練習。",14);
-  button("☀  朝の10分 / Morning Walk",()->startWalk("morning",10));
-  button("☾  帰りの10分 / Evening Walk",()->startWalk("evening",10));
-  button("▶  今日は3分だけ / Easy Day",()->startWalk("morning",3));
-  button("🎙  朝の会話10分 / Morning Conversation",()->startConversation("morning",10));
-  button("🎙  帰りの会話10分 / Evening Conversation",()->startConversation("evening",10));
-  button("🎙  3分だけ会話 / Easy Conversation",()->startConversation("morning",3));
-  button("■  散歩学習を終了 / Stop",()->stopService(new Intent(this,WalkService.class)));
-  label("会話モード：英文を聞く → Your turn → 英語で答える → 次へ。マイクの利用許可が必要です。",13);
-  label("Speaking Test  |  英語音声認識",19);
-  label("静かな場所でボタンを押し、『Listening』が表示されてから話してください。",13);
-  button("🎤  Speak English",this::recognize);
-  status=label("Ready / 準備完了",14);result=label("Recognised English appears here. / 認識結果",16);
-  button("📊  徒歩学習の記録を見る / Walk history",this::showWalkHistory);
-  button("📤  徒歩学習記録を共有（JSON）",this::shareWalkHistory);
-  label("☁  Web版と学習記録を同期",19);
-  label("Googleアカウント sasaki0369@gmail.com でログインしてください。同期するのは徒歩学習記録のみです。",13);
-  button("🔐  Googleでログイン",this::showGoogleLogin);
-  button("🔄  今すぐ同期",()->firebase.syncNow(this::syncMessage));
+ private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
+ private LinearLayout section;
+ private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
+ private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
+ private void button(String title,Runnable task){TextView b=new TextView(this);b.setText(title);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER_VERTICAL);b.setPadding(dp(18),0,dp(12),0);GradientDrawable bg=gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18);b.setBackground(bg);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(64));lp.setMargins(0,0,0,dp(10));section.addView(b,lp);b.setOnClickListener(v->task.run());}
+ private void heading(String text){TextView t=new TextView(this);t.setText(text);t.setTextSize(20);t.setTypeface(null,Typeface.BOLD);t.setTextColor(NAVY);t.setPadding(0,dp(6),0,dp(15));section.addView(t);}
+ private void card(String title){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(18),dp(16),dp(18),dp(14));c.setBackground(gradient(WHITE,Color.rgb(245,250,255),24));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(16));root.addView(c,lp);section=c;heading(title);}
+ private void hero(){
+  LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setPadding(dp(22),dp(30),dp(22),dp(28));hero.setBackground(gradient(Color.rgb(5,32,84),Color.rgb(5,132,177),28));
+  LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
+  TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
+  TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.2.9  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
+ }
+ @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
+  root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(16),dp(18),dp(16),dp(30));root.setBackgroundColor(Color.rgb(235,245,251));
+  ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);setContentView(scroll);applySafeInsets(scroll);
+  hero();
+  card("🎧  Walk & Talk");
+  button("☀   朝の10分 / Morning Walk",()->startWalk("morning",10));
+  button("☾   帰りの10分 / Evening Walk",()->startWalk("evening",10));
+  button("▶   今日は3分だけ / Easy Day",()->startWalk("morning",3));
+  card("🎙  Conversation");
+  button("朝の会話10分 / Morning Conversation",()->startConversation("morning",10));
+  button("帰りの会話10分 / Evening Conversation",()->startConversation("evening",10));
+  button("3分だけ会話 / Easy Conversation",()->startConversation("morning",3));
+  button("■   学習を終了 / Stop",()->stopService(new Intent(this,WalkService.class)));
+  label("英文を聞く → Your turn → 英語で答える → 次へ。",13);
+  card("🎤  Speaking Test");
+  label("静かな場所でListening表示後に話してください。",13);
+  button("Speak English",this::recognize);
+  status=label("Ready / 準備完了",14);result=label("Recognised English appears here. / 認識結果",15);
+  card("📊  Learning records");
+  button("学習記録を見る / Walk history",this::showWalkHistory);
+  button("学習記録を共有（JSON）",this::shareWalkHistory);
+  card("☁  Cloud sync");
+  label("GoogleアカウントでログインするとWeb版と徒歩学習記録を同期します。",13);
+  button("Googleでログイン",this::showGoogleLogin);
+  button("今すぐ同期",()->firebase.syncNow(this::syncMessage));
   button("ログアウト",()->{firebase.logout();syncMessage("ログアウトしました");});
-  button("🌐  Web版 Gaba Growth をアプリ内で開く",this::openWeb);
-  label("会話モードの画面オフ認識は試験機能です。端末や音声認識サービスによって停止する場合があります。歩行中は画面を操作しないでください。",13);
+  card("🌐  Gaba Growth Web");
+  button("Web版を開く  →",this::openWeb);
+  label("歩行中は画面を操作しないでください。会話モードの画面オフ認識は端末によって停止する場合があります。",12);
   if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},7);
  }
  private void syncMessage(String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Gaba Growth 同期").setMessage(message).setPositiveButton("OK",null).show());}
@@ -108,7 +127,7 @@ public class MainActivity extends Activity {
   if(Build.VERSION.SDK_INT>=30){
    view.setOnApplyWindowInsetsListener((v,insets)->{
     android.graphics.Insets sys=insets.getInsets(WindowInsets.Type.statusBars()|WindowInsets.Type.navigationBars()|WindowInsets.Type.displayCutout());
-    v.setPadding(0,sys.top,0,sys.bottom);
+    v.setPadding(v.getPaddingLeft(),sys.top,v.getPaddingRight(),sys.bottom);
     return insets;
    });
    view.requestApplyInsets();
@@ -127,7 +146,7 @@ public class MainActivity extends Activity {
    long seconds=0;int answers=0;
    for(int i=0;i<sessions.length();i++){org.json.JSONObject row=sessions.getJSONObject(i);seconds+=row.optLong("seconds");answers+=row.optInt("spokenAnswers");}
    new AlertDialog.Builder(this).setTitle("Walk & Talk 学習記録")
-    .setMessage("学習回数："+sessions.length()+" 回\n累計時間："+(seconds/60)+" 分\n音声認識回答："+answers+" 回\n\n記録はこのAndroidアプリ内に保存されています。Chrome版への自動同期はまだ有効ではありません。")
+    .setMessage("学習回数："+sessions.length()+" 回\n累計時間："+(seconds/60)+" 分\n音声認識回答："+answers+" 回\n\n記録はこのAndroidアプリ内に保存されています。Googleログイン済みの場合、クラウドへ同期できます。")
     .setPositiveButton("OK",(d,w)->{}).setNeutralButton("共有",(d,w)->shareWalkHistory()).show();
   }catch(Exception e){Toast.makeText(this,"記録を読み取れませんでした",Toast.LENGTH_LONG).show();}
  }
