@@ -12,9 +12,10 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
+ private float speechRate=1.0f;
  private TextToSpeech tts;
  private SpeechRecognizer recognizer;
  private boolean ready=false, active=false, conversation=false, listening=false;
@@ -39,6 +40,9 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  @Override public void onCreate(){super.onCreate();tts=new TextToSpeech(this,this);}
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent!=null&&STOP.equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
+  if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
+  speechRate=0.6f+getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("speed_step",4)*0.1f;
+  if(tts!=null&&ready)tts.setSpeechRate(speechRate);
   stopSession();
   mode=intent==null?"morning":intent.getStringExtra("mode");
   if(mode==null)mode="morning";
@@ -70,7 +74,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(!active)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
   String phrase=lines()[index++%lines().length];prompts++;
-  report("Listen: "+phrase);
+  reportText("phrase",phrase);reportText("answer","—");report("Listen: "+phrase);
   speak(phrase,()->{
    if(!active)return;
    if(conversation){speak("Your turn.",()->handler.postDelayed(this::listen,400));}
@@ -110,7 +114,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
      listening=false;ArrayList<String> words=b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
      String answer=words==null||words.isEmpty()?"":words.get(0);
      releaseRecognizer();if(!active)return;
-     errors=0;successes++;report("You said: "+answer);
+     errors=0;successes++;reportText("answer",answer);report("You said: "+answer);
      handler.postDelayed(()->{if(active)next();},1600);
     }
     public void onPartialResults(Bundle b){}public void onEvent(int type,Bundle b){}
@@ -149,10 +153,11 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    if(new FirebaseSync(this).hasLogin())new FirebaseSync(this).syncNow(null);
   }catch(Exception ex){android.util.Log.e("GabaGrowth","Unable to save walk",ex);}
  }
+ private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":"last_answer",value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
  private void stopSession(){saveSession("stopped");active=false;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
- @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;tts.setLanguage(Locale.US);tts.setSpeechRate(0.87f);if(active)handler.post(this::next);}else report("Text-to-speech initialization failed");}
+ @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active)handler.post(this::next);}else report("Text-to-speech initialization failed");}
  @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
 }
