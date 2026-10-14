@@ -1,6 +1,6 @@
 plugins { id 'com.android.application' }
 android { namespace 'jp.gabagrowth.walk'; compileSdk 35
- defaultConfig { applicationId 'jp.gabagrowth.walk'; minSdk 26; targetSdk 35; versionCode 27; versionName '2.7' }
+ defaultConfig { applicationId 'jp.gabagrowth.walk'; minSdk 26; targetSdk 35; versionCode 29; versionName '2.9' }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 
