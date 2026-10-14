@@ -69,12 +69,13 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(ready)handler.postDelayed(this::next,700);
   return START_NOT_STICKY;
  }
+ private String translate(String phrase){switch(phrase){case "How do you manage aging infrastructure?":return "老朽化したインフラをどのように管理していますか？";case "How do you decide which roads to repair first?":return "どの道路を優先して補修するか、どのように決めていますか？";case "Could you give me a specific example?":return "具体的な例を挙げていただけますか？";case "How do government agencies share infrastructure data?":return "行政機関はインフラのデータをどのように共有していますか？";case "What are the biggest challenges for local councils?":return "地方自治体が直面する最大の課題は何ですか？";case "How do you measure the benefits of digital technology?":return "デジタル技術の効果をどのように測定していますか？";case "We would like to learn about your infrastructure management approach.":return "皆さんのインフラ管理の方法について学びたいと考えています。";case "How do you use digital technology to reduce maintenance costs?":return "維持管理費の削減にデジタル技術をどのように活用していますか？";case "Could you explain how different councils work together?":return "自治体同士がどのように連携しているか説明していただけますか？";case "How do you prioritize infrastructure investment?":return "インフラ投資の優先順位をどのように決めていますか？";case "What results have you achieved so far?":return "これまでにどのような成果を上げていますか？";case "Thank you. That is very helpful.":return "ありがとうございます。大変参考になりました。";default:return "";}}
  private String[] lines(){return "evening".equals(mode)?evening:morning;}
  private void next(){
   if(!active)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
   String phrase=lines()[index++%lines().length];prompts++;
-  reportText("phrase",phrase);reportText("answer","—");report("Listen: "+phrase);
+  reportText("phrase",phrase);reportText("translation",translate(phrase));reportText("answer","—");report("再生中 / Speaking");
   speak(phrase,()->{
    if(!active)return;
    if(conversation){speak("Your turn.",()->handler.postDelayed(this::listen,400));}
@@ -153,7 +154,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    if(new FirebaseSync(this).hasLogin())new FirebaseSync(this).syncNow(null);
   }catch(Exception ex){android.util.Log.e("GabaGrowth","Unable to save walk",ex);}
  }
- private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":"last_answer",value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
+ private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":"last_answer"),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
  private void stopSession(){saveSession("stopped");active=false;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
