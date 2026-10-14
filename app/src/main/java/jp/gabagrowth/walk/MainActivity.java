@@ -24,9 +24,9 @@ public class MainActivity extends Activity {
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
- private TextView spokenText, answerText, playbackState, speedLabel; private SeekBar speedSlider; private boolean receiverRegistered=false;
- private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));}};
- private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
+ private TextView spokenText, translatedText, answerText, playbackState, speedLabel; private SeekBar speedSlider; private boolean receiverRegistered=false;
+ private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));}};
+ private String pendingWebTab="home"; private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
  private void button(String title,Runnable task){TextView b=new TextView(this);b.setText(title);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER_VERTICAL);b.setPadding(dp(18),0,dp(12),0);GradientDrawable bg=gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18);b.setBackground(bg);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(64));lp.setMargins(0,0,0,dp(10));section.addView(b,lp);b.setOnClickListener(v->task.run());}
@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.3  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.4  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -63,14 +63,16 @@ public class MainActivity extends Activity {
   label("再生中の英文と、会話モードで認識した自分の発言を表示します。",13);
   heading("Now speaking / 再生中");
   spokenText=label("学習を開始すると英文が表示されます。",18);
+  heading("日本語訳 / Translation");
+  translatedText=label("英文の日本語訳を表示します。",16);
   heading("Your answer / あなたの発言");
   answerText=label("会話モードで発言すると認識結果が表示されます。",16);
   playbackState=label("Ready",13);
+  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");});
   card("🎙  Conversation");
   button("朝の会話10分 / Morning Conversation",()->startConversation("morning",10));
   button("帰りの会話10分 / Evening Conversation",()->startConversation("evening",10));
   button("3分だけ会話 / Easy Conversation",()->startConversation("morning",3));
-  button("■   学習を終了 / Stop",()->stopService(new Intent(this,WalkService.class)));
   label("英文を聞く → Your turn → 英語で答える → 次へ。",13);
   card("🎤  Speaking Test");
   label("静かな場所でListening表示後に話してください。",13);
@@ -180,42 +182,51 @@ public class MainActivity extends Activity {
   share.putExtra(Intent.EXTRA_TEXT,walkHistory());
   startActivity(Intent.createChooser(share,"徒歩学習の記録を共有"));
  }
+ private LinearLayout bottomTabs(String active){
+  LinearLayout tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);tabs.setBackgroundColor(Color.WHITE);
+  String[] labels={"⌂\nHome","⚑\nMissions","🎧\nWalk","▤\nPractice","▥\nGrowth"};
+  String[] targets={"home","missions","walk","practice","growth"};
+  for(int j=0;j<labels.length;j++){
+   final String target=targets[j];TextView item=new TextView(this);item.setText(labels[j]);item.setTextSize(12);item.setTypeface(null,Typeface.BOLD);
+   item.setGravity(Gravity.CENTER);item.setTextColor(target.equals(active)?Color.rgb(6,99,141):Color.rgb(95,120,138));
+   if(target.equals(active))item.setBackground(gradient(Color.rgb(233,246,252),Color.rgb(233,246,252),13));
+   tabs.addView(item,new LinearLayout.LayoutParams(0,dp(61),1));
+   item.setOnClickListener(v->{if("walk".equals(target))showNativeWalk();else showWebTab(target);});
+  }
+  return tabs;
+ }
+ private void showWebTab(String target){pendingWebTab=target;openWeb();if(webView!=null)webView.evaluateJavascript("if(typeof tab==='function')tab('"+target+"')",null);}
  private void openWeb(){
-  if(webView!=null){if(webContainer.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)webContainer.getParent()).removeView(webContainer);setContentView(webContainer);applySafeInsets(webContainer);return;}
-  webView=new WebView(this);
-  webView.getSettings().setJavaScriptEnabled(true);
-  webView.getSettings().setDomStorageEnabled(true);
-  webView.getSettings().setMediaPlaybackRequiresUserGesture(true);
-  webView.setWebViewClient(new WebViewClient(){
-   private boolean navigate(android.net.Uri uri){
-    if("gabagrowth".equalsIgnoreCase(uri.getScheme()) && "walk".equalsIgnoreCase(uri.getHost())){runOnUiThread(()->showNativeWalk());return true;}
-    if(!"https".equalsIgnoreCase(uri.getScheme()) || !"sasaki0369.github.io".equalsIgnoreCase(uri.getHost())){
-     try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){Toast.makeText(MainActivity.this,"リンクを開けません",Toast.LENGTH_SHORT).show();}
-     return true;
+  if(webView==null){
+   webView=new WebView(this);webView.getSettings().setJavaScriptEnabled(true);webView.getSettings().setDomStorageEnabled(true);
+   webView.getSettings().setMediaPlaybackRequiresUserGesture(true);
+   webView.setWebViewClient(new WebViewClient(){
+    @Override public void onPageFinished(WebView view,String url){view.evaluateJavascript("if(typeof tab==='function')tab('"+pendingWebTab+"')",null);}
+    private boolean navigate(android.net.Uri uri){
+     if("gabagrowth".equalsIgnoreCase(uri.getScheme())&&"walk".equalsIgnoreCase(uri.getHost())){runOnUiThread(()->showNativeWalk());return true;}
+     if(!"https".equalsIgnoreCase(uri.getScheme())||!"sasaki0369.github.io".equalsIgnoreCase(uri.getHost())){
+      try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){Toast.makeText(MainActivity.this,"リンクを開けません",Toast.LENGTH_SHORT).show();}return true;
+     }return false;
     }
-    return false;
-   }
-   @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return navigate(request.getUrl());}
-   @Override public boolean shouldOverrideUrlLoading(WebView view,String url){return navigate(android.net.Uri.parse(url));}
-  });
-  webView.setWebChromeClient(new WebChromeClient());
+    @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return navigate(request.getUrl());}
+    @Override public boolean shouldOverrideUrlLoading(WebView view,String url){return navigate(android.net.Uri.parse(url));}
+   });
+   webView.setWebChromeClient(new WebChromeClient());
+   webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/?embedded=android&v=34");
+  }
   LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);container.setBackgroundColor(Color.WHITE);
-  LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setPadding(dp(10),dp(8),dp(10),dp(8));bar.setBackgroundColor(Color.rgb(10,46,83));
-  TextView walk=new TextView(this);walk.setText("🎧 Walk & Talk");walk.setTextColor(Color.WHITE);walk.setTypeface(null,Typeface.BOLD);walk.setTextSize(16);walk.setGravity(Gravity.CENTER);walk.setBackground(gradient(Color.rgb(21,105,174),Color.rgb(0,151,151),14));
-  bar.addView(walk,new LinearLayout.LayoutParams(0,dp(48),1));walk.setOnClickListener(v->showNativeWalk());
-  TextView browser=new TextView(this);browser.setText("↗ Chrome");browser.setTextColor(Color.WHITE);browser.setTextSize(13);browser.setGravity(Gravity.CENTER);
-  bar.addView(browser,new LinearLayout.LayoutParams(dp(100),dp(48)));browser.setOnClickListener(v->startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://sasaki0369.github.io/GabaGrowth/"))));
-  container.addView(bar);container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));
+  if(webView.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)webView.getParent()).removeView(webView);
+  container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));container.addView(bottomTabs(pendingWebTab));
   webContainer=container;setContentView(container);applySafeInsets(container);
-  webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/?embedded=android&v=31");
  }
  private void showNativeWalk(){
-  if(nativeWalkScreen!=null){
-   if(nativeWalkScreen.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)nativeWalkScreen.getParent()).removeView(nativeWalkScreen);
-   setContentView(nativeWalkScreen);applySafeInsets(nativeWalkScreen);
-  }
+  if(nativeWalkScreen==null)return;
+  if(nativeWalkScreen.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)nativeWalkScreen.getParent()).removeView(nativeWalkScreen);
+  LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);
+  container.addView(nativeWalkScreen,new LinearLayout.LayoutParams(-1,0,1));container.addView(bottomTabs("walk"));
+  setContentView(container);applySafeInsets(container);
  }
-  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));}
+  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));}
  @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(walkUpdates);receiverRegistered=false;}super.onPause();}
  @Override protected void onNewIntent(Intent intent){
    super.onNewIntent(intent);
