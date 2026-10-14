@@ -21,7 +21,7 @@ import com.google.android.gms.tasks.Task;
 public class MainActivity extends Activity {
  private static final int GOOGLE_SIGN_IN=912;
  private static final String GOOGLE_WEB_CLIENT_ID="337987684766-4d2a9ud7dhkndtis54got4v8re0mvpau.apps.googleusercontent.com";
- private FirebaseSync firebase; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
+ private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
  private LinearLayout section;
@@ -35,12 +35,12 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.2.9  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.0  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
   root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(16),dp(18),dp(16),dp(30));root.setBackgroundColor(Color.rgb(235,245,251));
-  ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);setContentView(scroll);applySafeInsets(scroll);
+  ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(root);nativeWalkScreen=scroll;setContentView(scroll);applySafeInsets(scroll);
   hero();
   card("🎧  Walk & Talk");
   button("☀   朝の10分 / Morning Walk",()->startWalk("morning",10));
@@ -64,10 +64,11 @@ public class MainActivity extends Activity {
   button("Googleでログイン",this::showGoogleLogin);
   button("今すぐ同期",()->firebase.syncNow(this::syncMessage));
   button("ログアウト",()->{firebase.logout();syncMessage("ログアウトしました");});
-  card("🌐  Gaba Growth Web");
-  button("Web版を開く  →",this::openWeb);
+  card("🌐  Gaba Growth");
+  button("学習管理へ / Learning dashboard",this::openWeb);
   label("歩行中は画面を操作しないでください。会話モードの画面オフ認識は端末によって停止する場合があります。",12);
   if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},7);
+  openWeb();
  }
  private void syncMessage(String message){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Gaba Growth 同期").setMessage(message).setPositiveButton("OK",null).show());}
  private void showGoogleLogin(){
@@ -135,10 +136,7 @@ public class MainActivity extends Activity {
    view.setFitsSystemWindows(true);
   }
  }
- private void returnToWalk(){
-  if(webView!=null){webView.stopLoading();webView.destroy();webView=null;}
-  recreate();
- }
+ private void returnToWalk(){showNativeWalk();}
  private String walkHistory(){return getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getString("sessions","[]");}
  private void showWalkHistory(){
   try{
@@ -156,30 +154,39 @@ public class MainActivity extends Activity {
   startActivity(Intent.createChooser(share,"徒歩学習の記録を共有"));
  }
  private void openWeb(){
+  if(webView!=null){if(webContainer.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)webContainer.getParent()).removeView(webContainer);setContentView(webContainer);applySafeInsets(webContainer);return;}
   webView=new WebView(this);
   webView.getSettings().setJavaScriptEnabled(true);
   webView.getSettings().setDomStorageEnabled(true);
-   webView.setWebViewClient(new WebViewClient(){
-    @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request){
-     android.net.Uri uri=request.getUrl();
-     if("gabagrowth".equalsIgnoreCase(uri.getScheme()) && "walk".equalsIgnoreCase(uri.getHost())){
-      runOnUiThread(()->returnToWalk());return true;
-     }
-     return false;
+  webView.getSettings().setMediaPlaybackRequiresUserGesture(true);
+  webView.setWebViewClient(new WebViewClient(){
+   private boolean navigate(android.net.Uri uri){
+    if("gabagrowth".equalsIgnoreCase(uri.getScheme()) && "walk".equalsIgnoreCase(uri.getHost())){runOnUiThread(()->showNativeWalk());return true;}
+    if(!"https".equalsIgnoreCase(uri.getScheme()) || !"sasaki0369.github.io".equalsIgnoreCase(uri.getHost())){
+     try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){Toast.makeText(MainActivity.this,"リンクを開けません",Toast.LENGTH_SHORT).show();}
+     return true;
     }
-    @Override public boolean shouldOverrideUrlLoading(WebView view, String url){
-     if(url!=null && url.startsWith("gabagrowth://walk")){
-      runOnUiThread(()->returnToWalk());return true;
-     }
-     return false;
-    }
-   });
+    return false;
+   }
+   @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return navigate(request.getUrl());}
+   @Override public boolean shouldOverrideUrlLoading(WebView view,String url){return navigate(android.net.Uri.parse(url));}
+  });
   webView.setWebChromeClient(new WebChromeClient());
   LinearLayout container=new LinearLayout(this);container.setOrientation(LinearLayout.VERTICAL);container.setBackgroundColor(Color.WHITE);
-  container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));
-  setContentView(container);
-  applySafeInsets(container);
-  webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/");
+  LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setPadding(dp(10),dp(8),dp(10),dp(8));bar.setBackgroundColor(Color.rgb(10,46,83));
+  TextView walk=new TextView(this);walk.setText("🎧 Walk & Talk");walk.setTextColor(Color.WHITE);walk.setTypeface(null,Typeface.BOLD);walk.setTextSize(16);walk.setGravity(Gravity.CENTER);walk.setBackground(gradient(Color.rgb(21,105,174),Color.rgb(0,151,151),14));
+  bar.addView(walk,new LinearLayout.LayoutParams(0,dp(48),1));walk.setOnClickListener(v->showNativeWalk());
+  TextView browser=new TextView(this);browser.setText("↗ Browser");browser.setTextColor(Color.WHITE);browser.setTextSize(13);browser.setGravity(Gravity.CENTER);
+  bar.addView(browser,new LinearLayout.LayoutParams(dp(100),dp(48)));browser.setOnClickListener(v->startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://sasaki0369.github.io/GabaGrowth/"))));
+  container.addView(bar);container.addView(webView,new LinearLayout.LayoutParams(-1,0,1));
+  webContainer=container;setContentView(container);applySafeInsets(container);
+  webView.loadUrl("https://sasaki0369.github.io/GabaGrowth/?embedded=android");
+ }
+ private void showNativeWalk(){
+  if(nativeWalkScreen!=null){
+   if(nativeWalkScreen.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)nativeWalkScreen.getParent()).removeView(nativeWalkScreen);
+   setContentView(nativeWalkScreen);applySafeInsets(nativeWalkScreen);
+  }
  }
   @Override protected void onNewIntent(Intent intent){
    super.onNewIntent(intent);
@@ -187,11 +194,11 @@ public class MainActivity extends Activity {
    if(intent!=null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null
       && "gabagrowth".equalsIgnoreCase(intent.getData().getScheme())
       && "walk".equalsIgnoreCase(intent.getData().getHost())){
-    if(webView!=null) returnToWalk();
+    if(webView!=null) showNativeWalk();
    }
   }
 
  private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+0.5f);}
- @Override public void onBackPressed(){if(webView!=null){if(webView.canGoBack()){webView.goBack();}else{returnToWalk();}}else super.onBackPressed();}
+ @Override public void onBackPressed(){if(webView!=null && webView.isShown()){if(webView.canGoBack())webView.goBack();else showNativeWalk();}else if(webView!=null)openWeb();else super.onBackPressed();}
  @Override public void onDestroy(){if(recognizer!=null){recognizer.cancel();recognizer.destroy();}if(webView!=null)webView.destroy();super.onDestroy();}
 }
