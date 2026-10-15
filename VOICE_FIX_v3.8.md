@@ -1,0 +1,1 @@
+GG v3.8: Adds 7-second TTS initialization watchdog, safe fallback to recognition when TTS is unavailable, bounded 9–22-second utterance watchdog, and correct GitHub artifact version. Device testing is still required.
