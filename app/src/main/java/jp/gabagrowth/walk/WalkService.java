@@ -18,7 +18,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private float speechRate=1.0f;
  private TextToSpeech tts;
  private SpeechRecognizer recognizer;
- private boolean ready=false, active=false, conversation=false, listening=false;
+ private boolean ready=false, active=false, conversation=false, listening=false, ttsInitFailed=false;
  private int index=0, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0;
  private long endAt=0, sessionStartedAt=0;
  private String sessionId=""; private int prompts=0; private boolean sessionSaved=false;
@@ -68,6 +68,13 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(Build.VERSION.SDK_INT>=29)startForeground(10,notification,type);else startForeground(10,notification);
   report("Started: "+(conversation?"conversation":"repeat"));
   if(ready)handler.postDelayed(this::next,700);
+  else handler.postDelayed(()->{
+   if(active&&!ready){
+    ttsInitFailed=true;
+    report("TTS initialization timeout / 読み上げエンジン未起動・聞き取りへ進みます");
+    next();
+   }
+  },7000);
   return START_NOT_STICKY;
  }
  private String translate(String phrase){switch(phrase){case "How do you manage aging infrastructure?":return "老朽化したインフラをどのように管理していますか？";case "How do you decide which roads to repair first?":return "どの道路を優先して補修するか、どのように決めていますか？";case "Could you give me a specific example?":return "具体的な例を挙げていただけますか？";case "How do government agencies share infrastructure data?":return "行政機関はインフラのデータをどのように共有していますか？";case "What are the biggest challenges for local councils?":return "地方自治体が直面する最大の課題は何ですか？";case "How do you measure the benefits of digital technology?":return "デジタル技術の効果をどのように測定していますか？";case "We would like to learn about your infrastructure management approach.":return "皆さんのインフラ管理の方法について学びたいと考えています。";case "How do you use digital technology to reduce maintenance costs?":return "維持管理費の削減にデジタル技術をどのように活用していますか？";case "Could you explain how different councils work together?":return "自治体同士がどのように連携しているか説明していただけますか？";case "How do you prioritize infrastructure investment?":return "インフラ投資の優先順位をどのように決めていますか？";case "What results have you achieved so far?":return "これまでにどのような成果を上げていますか？";case "Thank you. That is very helpful.":return "ありがとうございます。大変参考になりました。";default:return "";}}
@@ -87,7 +94,11 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  }
  private void speak(String phrase,Runnable done){
   if(!active)return;
-  if(tts==null||!ready){handler.postDelayed(()->{if(active)speak(phrase,done);},500);return;}
+  if(tts==null||!ready){
+   if(ttsInitFailed){report("TTS unavailable / 読み上げ不可・次の処理へ");handler.postDelayed(done,500);}
+   else handler.postDelayed(()->{if(active)speak(phrase,done);},500);
+   return;
+  }
   final int generation=++speechGeneration;
   final boolean[] completed={false};
   final Runnable complete=()->{
@@ -106,7 +117,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   // Some device TTS engines never send onDone. A bounded watchdog avoids a
   // permanent Speaking state, including when playback speed is adjusted.
   long estimated=(long)(phrase.length()*130L/Math.max(0.6f,speechRate))+6500L;
-  long timeout=Math.max(11000L,Math.min(45000L,estimated));
+  long timeout=Math.max(9000L,Math.min(22000L,estimated));
   handler.postDelayed(()->{
    if(active&&generation==speechGeneration&&!completed[0]){
     report("Speech completion timeout / 再生終了通知なし・次へ進みます");
@@ -181,7 +192,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
  private void stopSession(){saveSession("stopped");active=false;speechGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
- @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active)handler.post(this::next);}else report("Text-to-speech initialization failed");}
+ @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;ttsInitFailed=false;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active&&prompts==0)handler.post(this::next);}else{ttsInitFailed=true;report("Text-to-speech initialization failed / 音声エンジン初期化失敗");if(active&&prompts==0)handler.post(this::next);}}
  @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
 }
