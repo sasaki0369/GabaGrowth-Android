@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.5  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.6  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -46,6 +46,15 @@ public class MainActivity extends Activity {
   hero();
   card("📚  NSW Q&A教材 / CSV Import");
   label("添付CSVと同じ15列のフォーマットに対応。初期教材230件を収録。",13);
+  label("複数のCSVを個別に保存し、利用する教材を選択できます。",13);
+  android.widget.Spinner datasetPicker=new android.widget.Spinner(this);section.addView(datasetPicker);
+  java.util.ArrayList<String> datasetIds=new java.util.ArrayList<>();java.util.ArrayList<String> datasetNames=new java.util.ArrayList<>();
+  datasetIds.add(QaBank.DEFAULT_ID);datasetNames.add("初期教材 / NSW Q&A (bundled)");
+  org.json.JSONObject library=QaBank.library(this);java.util.Iterator<String> keys=library.keys();while(keys.hasNext()){String key=keys.next();org.json.JSONObject entry=library.optJSONObject(key);if(entry!=null){datasetIds.add(key);datasetNames.add(entry.optString("name","CSV")+" ("+(entry.optJSONArray("rows")!=null?entry.optJSONArray("rows").length():0)+"件)");}}
+  datasetPicker.setAdapter(new android.widget.ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,datasetNames));
+  int selectedDataset=datasetIds.indexOf(QaBank.activeId(this));datasetPicker.setSelection(Math.max(0,selectedDataset));
+  datasetPicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){}public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){String chosen=datasetIds.get(pos);if(!chosen.equals(QaBank.activeId(MainActivity.this))){QaBank.select(MainActivity.this,chosen);recreate();}}});
+  button("選択中のCSVを削除 / Delete selected CSV",()->{String id=QaBank.activeId(this);if(QaBank.DEFAULT_ID.equals(id)){Toast.makeText(this,"初期教材は削除できません",Toast.LENGTH_SHORT).show();return;}new AlertDialog.Builder(this).setTitle("教材を削除しますか？").setMessage("選択したCSV教材だけを削除します。他の教材は残ります。").setNegativeButton("キャンセル",null).setPositiveButton("削除",(d,w)->{QaBank.remove(this,id);recreate();}).show();});
   button("CSVファイルを取り込む / Import CSV",()->{Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);pick.addCategory(Intent.CATEGORY_OPENABLE);pick.setType("text/*");pick.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"text/csv","text/comma-separated-values","text/plain","application/vnd.ms-excel"});startActivityForResult(pick,CSV_IMPORT);});
   label("訪問先・週・練習方向を選び、Walk & Talkで質問と回答を練習できます。",13);
   card("🎧  Walk & Talk");
@@ -117,7 +126,7 @@ public class MainActivity extends Activity {
  }
  @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
   super.onActivityResult(requestCode,resultCode,data);
-  if(requestCode==CSV_IMPORT){if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){try(java.io.InputStream in=getContentResolver().openInputStream(data.getData());java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)out.write(b,0,n);org.json.JSONArray qa=QaBank.parse(out.toString("UTF-8"));QaBank.save(this,qa);new AlertDialog.Builder(this).setTitle("CSV Import").setMessage(qa.length()+"件を取り込みました。訪問先の選択肢を更新するにはアプリを開き直してください。").setPositiveButton("OK",null).show();}catch(Exception e){new AlertDialog.Builder(this).setTitle("CSV Import error").setMessage(e.getMessage()).setPositiveButton("OK",null).show();}}return;}
+  if(requestCode==CSV_IMPORT){if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){try(java.io.InputStream in=getContentResolver().openInputStream(data.getData());java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)out.write(b,0,n);org.json.JSONArray qa=QaBank.parse(out.toString("UTF-8"));String filename="Imported CSV";try{android.database.Cursor cursor=getContentResolver().query(data.getData(),null,null,null,null);if(cursor!=null){try{if(cursor.moveToFirst()){int col=cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);if(col>=0)filename=cursor.getString(col);}}finally{cursor.close();}}}catch(Exception ignored){}QaBank.add(this,filename,qa);Toast.makeText(this,filename+" : "+qa.length()+"件を追加",Toast.LENGTH_LONG).show();recreate();}catch(Exception e){new AlertDialog.Builder(this).setTitle("CSV Import error").setMessage(e.getMessage()).setPositiveButton("OK",null).show();}}return;}
   if(requestCode!=GOOGLE_SIGN_IN)return;
   try{
    GoogleSignInAccount account=GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException.class);
