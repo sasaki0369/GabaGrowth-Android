@@ -19,7 +19,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private TextToSpeech tts;
  private SpeechRecognizer recognizer;
  private boolean ready=false, active=false, conversation=false, listening=false, ttsInitFailed=false;
- private int index=0, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0;
+ private int index=0, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0, promptGeneration=0;
  private long endAt=0, sessionStartedAt=0;
  private String sessionId=""; private int prompts=0; private boolean sessionSaved=false;
  private String mode="morning"; private org.json.JSONArray qaItems=new org.json.JSONArray();
@@ -86,11 +86,31 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(qaItems.length()>0){org.json.JSONObject q=qaItems.optJSONObject(index%qaItems.length());boolean useAnswer="answer".equals(direction)||("both".equals(direction)&&(index%2==1));phrase=q.optString(useAnswer?"answer_en":"question_en");translation=q.optString(useAnswer?"answer_ja":"question_ja");index++;}
   else{phrase=lines()[index++%lines().length];translation=translate(phrase);}prompts++;
   reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");report("Speaking question / 質問を再生中");
-  speak(phrase,()->{
-   if(!active)return;
-   if(conversation){report("Prompt finished / 質問の再生完了");speak("Your turn.",()->{report("Preparing recognition / 音声認識を準備中");handler.postDelayed(this::listen,650);});}
-   else handler.postDelayed(this::next,Math.max(4200,phrase.length()*85L));
-  });
+  // A device TTS engine may never call onDone. Conversation must still reach
+  // SpeechRecognizer. A short independent deadline is not tied to TTS callbacks.
+  final int prompt=++promptGeneration;
+  final boolean[] advanced={false};
+  Runnable advance=()->{
+   if(!active||prompt!=promptGeneration||advanced[0])return;
+   advanced[0]=true;
+   if(conversation){
+    if(tts!=null)tts.stop();
+    speechGeneration++; // Ignore late TTS completion callbacks.
+    report("Preparing recognition / 音声認識を準備中");
+    handler.postDelayed(()->{if(active&&prompt==promptGeneration)listen();},350);
+   }else handler.postDelayed(this::next,Math.max(4200,phrase.length()*85L));
+  };
+  speak(phrase,advance);
+  if(conversation){
+   // Guaranteed hand-off even when TTS callbacks and its own watchdog fail.
+   long hardLimit=Math.max(4500L,Math.min(8000L,(long)(phrase.length()*105L/Math.max(.6f,speechRate))+2000L));
+   handler.postDelayed(()->{
+    if(active&&prompt==promptGeneration&&!advanced[0]){
+     report("TTS hand-off deadline / 聞き取りへ切り替えます");
+     advance.run();
+    }
+   },hardLimit);
+  }
  }
  private void speak(String phrase,Runnable done){
   if(!active)return;
@@ -191,7 +211,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":"last_answer"),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
- private void stopSession(){saveSession("stopped");active=false;speechGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
+ private void stopSession(){saveSession("stopped");active=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
  @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;ttsInitFailed=false;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active&&prompts==0)handler.post(this::next);}else{ttsInitFailed=true;report("Text-to-speech initialization failed / 音声エンジン初期化失敗");if(active&&prompts==0)handler.post(this::next);}}
  @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
