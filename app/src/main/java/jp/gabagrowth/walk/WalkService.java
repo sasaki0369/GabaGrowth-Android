@@ -12,10 +12,15 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
  private float speechRate=1.0f;
+ private int gapStep=4;private boolean gapAuto=true;private int lastPhraseLength=0;
+ private long phraseGapMs(){
+  if(!gapAuto)return Math.max(0,Math.min(20,gapStep))*500L;
+  return conversation?1600L:Math.max(4200L,Math.round(lastPhraseLength*85.0));
+ }
  private TextToSpeech tts;
  private SpeechRecognizer recognizer;
  private boolean ready=false, active=false, conversation=false, listening=false, ttsInitFailed=false;
@@ -41,6 +46,10 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent!=null&&STOP.equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
+  if(intent!=null&&SET_GAP.equals(intent.getAction())){gapStep=Math.max(0,Math.min(20,intent.getIntExtra("gap_step",4)));return START_NOT_STICKY;}
+  if(intent!=null&&SET_GAP_MODE.equals(intent.getAction())){gapAuto=intent.getBooleanExtra("gap_auto",true);return START_NOT_STICKY;}
+  gapStep=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("gap_step",4);
+  gapAuto=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("gap_auto",true);
   speechRate=0.6f+getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("speed_step",4)*0.1f;
   if(tts!=null&&ready)tts.setSpeechRate(speechRate);
   stopSession();
@@ -82,9 +91,24 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private void next(){
   if(!active)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
-  String phrase,translation;String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
-  if(qaItems.length()>0){org.json.JSONObject q=qaItems.optJSONObject(index%qaItems.length());boolean useAnswer="answer".equals(direction)||("both".equals(direction)&&(index%2==1));phrase=q.optString(useAnswer?"answer_en":"question_en");translation=q.optString(useAnswer?"answer_ja":"question_ja");index++;}
-  else{phrase=lines()[index++%lines().length];translation=translate(phrase);}prompts++;
+  String phrase=null,translation="",phraseKey="";
+  String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
+  java.util.Set<String> mastered=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet());
+  int available=qaItems.length()>0?qaItems.length()*("both".equals(direction)?2:1):lines().length;
+  for(int attempt=0;attempt<available;attempt++){
+   String candidate,candidateTranslation,key;
+   if(qaItems.length()>0){
+    int slot=index++%available;org.json.JSONObject q=qaItems.optJSONObject(slot%qaItems.length());
+    boolean useAnswer="answer".equals(direction)||("both".equals(direction)&&slot>=qaItems.length());
+    candidate=q.optString(useAnswer?"answer_en":"question_en");candidateTranslation=q.optString(useAnswer?"answer_ja":"question_ja");
+    key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(useAnswer?"answer":"question");
+   }else{candidate=lines()[index++%lines().length];candidateTranslation=translate(candidate);key="default:"+candidate;}
+   if(candidate.trim().isEmpty()||mastered.contains(key))continue;
+   phrase=candidate;translation=candidateTranslation;phraseKey=key;break;
+  }
+  if(phrase==null){report("All selected phrases mastered / 対象の教材はすべて習得済みです");reportText("phrase","再生対象の英文・単語がありません。習得済みのチェックを解除してください。");reportText("translation","");reportText("phrase_key","");finish();return;}
+  lastPhraseLength=phrase.length();prompts++;
+  reportText("phrase_key",phraseKey);
   reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");report("Speaking question / 質問を再生中");
   // A device TTS engine may never call onDone. Conversation must still reach
   // SpeechRecognizer. A short independent deadline is not tied to TTS callbacks.
@@ -98,7 +122,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     speechGeneration++; // Ignore late TTS completion callbacks.
     report("Preparing recognition / 音声認識を準備中");
     handler.postDelayed(()->{if(active&&prompt==promptGeneration)listen();},350);
-   }else handler.postDelayed(this::next,Math.max(4200,phrase.length()*85L));
+   }else handler.postDelayed(()->{if(active&&prompt==promptGeneration)next();},phraseGapMs());
   };
   speak(phrase,advance);
   if(conversation){
@@ -163,14 +187,14 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
      listening=false;releaseRecognizer();if(!active)return;
      errors++;report("Recognition error "+code+" · continuing");
      if(errors>=3){conversation=false;report("Microphone unavailable · switched to repeat mode");}
-     handler.postDelayed(()->{if(active)next();},1600);
+     handler.postDelayed(()->{if(active)next();},phraseGapMs());
     }
     public void onResults(Bundle b){
      listening=false;ArrayList<String> words=b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
      String answer=words==null||words.isEmpty()?"":words.get(0);
      releaseRecognizer();if(!active)return;
      errors=0;successes++;reportText("answer",answer);report("You said: "+answer);
-     handler.postDelayed(()->{if(active)next();},1600);
+     handler.postDelayed(()->{if(active)next();},phraseGapMs());
     }
     public void onPartialResults(Bundle b){}public void onEvent(int type,Bundle b){}
    });
@@ -182,8 +206,8 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    request.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,1300L);
    request.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,1100L);
    listening=true;int generation=++recognitionGeneration;report("Starting microphone / マイク起動中");recognizer.startListening(request);
-   handler.postDelayed(()->{if(active&&listening&&generation==recognitionGeneration){report("Recognition timeout / 認識応答なし・次の質問へ");releaseRecognizer();handler.postDelayed(this::next,700);}},12500);
-  }catch(Exception ex){releaseRecognizer();errors++;report("Recognizer unavailable: "+ex.getClass().getSimpleName());if(errors>=3)conversation=false;handler.postDelayed(this::next,1800);}
+   handler.postDelayed(()->{if(active&&listening&&generation==recognitionGeneration){report("Recognition timeout / 認識応答なし・次の質問へ");releaseRecognizer();handler.postDelayed(this::next,phraseGapMs());}},12500);
+  }catch(Exception ex){releaseRecognizer();errors++;report("Recognizer unavailable: "+ex.getClass().getSimpleName());if(errors>=3)conversation=false;handler.postDelayed(this::next,phraseGapMs());}
  }
  private void finish(){saveSession("completed");active=false;releaseRecognizer();report("Completed · "+successes+" spoken answers");if(ready&&tts!=null)tts.speak("Great work. Your walk is complete.",TextToSpeech.QUEUE_FLUSH,null,"complete");handler.postDelayed(this::stopSelf,3500);}
  private void saveSession(String outcome){
@@ -208,7 +232,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    if(new FirebaseSync(this).hasLogin())new FirebaseSync(this).syncNow(null);
   }catch(Exception ex){android.util.Log.e("GabaGrowth","Unable to save walk",ex);}
  }
- private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":"last_answer"),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
+ private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":("phrase_key".equals(key)?"last_phrase_key":"last_answer")),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
  private void stopSession(){saveSession("stopped");active=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
