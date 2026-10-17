@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.4  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.5  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
    .setMessage("選択中の教材・絞り込み条件の朝と帰りの再生位置をリセットします。習得済みチェックは維持されます。")
    .setNegativeButton("キャンセル",null)
    .setPositiveButton("リセット",(d,w)->{android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String prefix="resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":";getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove(prefix+"morning").remove(prefix+"evening").apply();Toast.makeText(this,"次回は先頭の未習得項目から再生します",Toast.LENGTH_LONG).show();}).show());
-  card("🔊  Playback speed / 再生速度");
+  card("🔊  English playback speed / 英語の再生速度");
   speedLabel=label("",16);
   speedSlider=new SeekBar(this);speedSlider.setMax(12);section.addView(speedSlider);
   int stored=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("speed_step",4);
@@ -84,7 +84,23 @@ public class MainActivity extends Activity {
    public void onProgressChanged(SeekBar b,int progress,boolean fromUser){updateSpeedLabel(progress);if(fromUser){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt("speed_step",progress).apply();Intent i=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_SPEED);i.putExtra("speed",speedValue(progress));startService(i);}}
    public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
   });
-  label("0.6×〜1.8×（0.1刻み）。次の発話から反映されます。",12);
+  label("英語：0.6×〜1.8×（0.1刻み）。次の発話から反映されます。",12);
+  card("🇯🇵  Japanese playback speed / 日本語訳の再生速度");
+  TextView japaneseSpeedLabel=label("",16);
+  SeekBar japaneseSpeedSlider=new SeekBar(this);japaneseSpeedSlider.setMax(14);section.addView(japaneseSpeedSlider);
+  int japaneseStored=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("japanese_speed_step",7);
+  japaneseSpeedSlider.setProgress(Math.max(0,Math.min(14,japaneseStored)));
+  japaneseSpeedLabel.setText(String.format(Locale.US,"日本語訳の再生速度: %.1f×",0.6f+japaneseStored*0.1f));
+  japaneseSpeedSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+   public void onProgressChanged(SeekBar b,int step,boolean fromUser){
+    float speed=0.6f+step*0.1f;
+    japaneseSpeedLabel.setText(String.format(Locale.US,"日本語訳の再生速度: %.1f×",speed));
+    if(fromUser){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt("japanese_speed_step",step).apply();
+     Intent i=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_JAPANESE_SPEED);i.putExtra("speed",speed);startService(i);}
+   }
+   public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+  });
+  label("日本語訳：0.6×〜2.0×（0.1刻み）。初期値は1.3×。",12);
   card("⏱  Pause between phrases / 発話間隔");
   gapLabel=label("",16);
   gapSlider=new SeekBar(this);gapSlider.setMax(20);section.addView(gapSlider);
@@ -148,6 +164,8 @@ public class MainActivity extends Activity {
   heading("Your answer / あなたの発言");
   answerText=label("会話モードで発言すると認識結果が表示されます。",16);
   playbackState=label("Ready",13);
+  button("⏸   一時停止 / Pause",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.PAUSE);startService(i);});
+  button("▶   再開 / Resume",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.RESUME);startService(i);});
   button("⏮   一つ前の文章に戻る / Previous phrase",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS);startService(i);});
   button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");});
   card("🎙  Conversation");
