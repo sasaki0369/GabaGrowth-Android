@@ -12,10 +12,11 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS", PAUSE="PAUSE", RESUME="RESUME", SET_JAPANESE_SPEED="SET_JAPANESE_SPEED";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
- private float speechRate=1.0f;
+ private float speechRate=1.0f, japaneseSpeechRate=1.3f;
+ private boolean paused=false; private long pausedAt=0L;
  private int gapStep=4;private boolean gapAuto=true;private int lastPhraseLength=0;
  private long phraseGapMs(){
   if(!gapAuto)return Math.max(0,Math.min(20,gapStep))*500L;
@@ -50,11 +51,15 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   japaneseTts=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS&&japaneseTts!=null){
    int result=japaneseTts.setLanguage(Locale.JAPANESE);
    japaneseReady=result!=TextToSpeech.LANG_MISSING_DATA&&result!=TextToSpeech.LANG_NOT_SUPPORTED;
+   japaneseTts.setSpeechRate(japaneseSpeechRate);
   }});
   tts=new TextToSpeech(this,this);
  }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent!=null&&STOP.equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
+  if(intent!=null&&PAUSE.equals(intent.getAction())){pauseWalk();return START_NOT_STICKY;}
+  if(intent!=null&&RESUME.equals(intent.getAction())){resumeWalk();return START_NOT_STICKY;}
+  if(intent!=null&&SET_JAPANESE_SPEED.equals(intent.getAction())){japaneseSpeechRate=Math.max(0.6f,Math.min(2.0f,intent.getFloatExtra("speed",1.3f)));if(japaneseTts!=null&&japaneseReady)japaneseTts.setSpeechRate(japaneseSpeechRate);return START_NOT_STICKY;}
   if(intent!=null&&PREVIOUS.equals(intent.getAction())){previousPhrase();return START_NOT_STICKY;}
   if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
   if(intent!=null&&SET_GAP.equals(intent.getAction())){gapStep=Math.max(0,Math.min(20,intent.getIntExtra("gap_step",4)));return START_NOT_STICKY;}
@@ -66,6 +71,8 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   gapStep=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("gap_step",4);
   gapAuto=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("gap_auto",true);
   speechRate=0.6f+getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("speed_step",4)*0.1f;
+  japaneseSpeechRate=0.6f+getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("japanese_speed_step",7)*0.1f;
+  if(japaneseTts!=null&&japaneseReady)japaneseTts.setSpeechRate(japaneseSpeechRate);
   if(tts!=null&&ready)tts.setSpeechRate(speechRate);
   stopSession();
   mode=intent==null?"morning":intent.getStringExtra("mode");
@@ -75,7 +82,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
   qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.load(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week"))))qaItems.put(q);}}catch(Exception ignored){}
   playedSlots.clear();progressKey=progressKey();index=Math.max(0,getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt(progressKey,0));currentSlot=-1;
-  active=true;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
+  active=true;paused=false;pausedAt=0L;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Walk & Talk",NotificationManager.IMPORTANCE_LOW));
   Intent stop=new Intent(this,WalkService.class).setAction(STOP);
@@ -116,14 +123,14 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   reportText("play_count",Integer.toString(count));
  }
  private void speakJapanese(String translation,Runnable done){
-  if(!active)return;
+  if(!active||paused)return;
   if(translation==null||translation.trim().isEmpty()||!japaneseReady||japaneseTts==null){
    handler.post(done);return;
   }
   final int generation=++speechGeneration;
   final boolean[] completed={false};
   final Runnable complete=()->{
-   if(!active||generation!=speechGeneration||completed[0])return;
+   if(!active||paused||generation!=speechGeneration||completed[0])return;
    completed[0]=true;handler.post(done);
   };
   String utterance="ja-"+generation+"-"+SystemClock.elapsedRealtime();
@@ -132,12 +139,30 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    @Override public void onDone(String id){if(utterance.equals(id))handler.post(complete);}
    @Override public void onError(String id){if(utterance.equals(id))handler.post(complete);}
   });
+  japaneseTts.setSpeechRate(japaneseSpeechRate);
   int result=japaneseTts.speak(translation,TextToSpeech.QUEUE_FLUSH,null,utterance);
   if(result==TextToSpeech.ERROR){handler.post(complete);return;}
   long timeout=Math.max(7000L,Math.min(30000L,translation.length()*220L+4500L));
-  handler.postDelayed(()->{if(active&&generation==speechGeneration&&!completed[0]){
+  handler.postDelayed(()->{if(active&&!paused&&generation==speechGeneration&&!completed[0]){
    japaneseTts.stop();complete.run();
   }},timeout);
+ }
+ private void pauseWalk(){
+  if(!active||paused)return;
+  paused=true;pausedAt=SystemClock.elapsedRealtime();
+  speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);
+  releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();
+  report("Paused / 一時停止中");
+ }
+ private void resumeWalk(){
+  if(!active||!paused)return;
+  endAt+=Math.max(0L,SystemClock.elapsedRealtime()-pausedAt);
+  paused=false;pausedAt=0L;
+  if(currentSlot>=0){
+   index=currentSlot;currentSlot=-1;
+   if(!playedSlots.isEmpty())playedSlots.remove(playedSlots.size()-1);
+  }
+  report("Resumed / 再開しました");handler.post(this::next);
  }
  private void previousPhrase(){
   if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
@@ -157,7 +182,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   handler.post(this::next);
  }
  private void next(){
-  if(!active)return;
+  if(!active||paused)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
   String phrase=null,translation="",phraseKey="";
   String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
@@ -184,25 +209,25 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   final int prompt=++promptGeneration;
   final boolean[] advanced={false}; final boolean[] englishFinished={false};
   Runnable advance=()->{
-   if(!active||prompt!=promptGeneration||advanced[0])return;
+   if(!active||paused||prompt!=promptGeneration||advanced[0])return;
    advanced[0]=true;
    if(conversation){
     if(tts!=null)tts.stop();
     speechGeneration++; // Ignore late TTS completion callbacks.
     report("Preparing recognition / 音声認識を準備中");
-    handler.postDelayed(()->{if(active&&prompt==promptGeneration)listen();},350);
-   }else{commitProgress();handler.postDelayed(()->{if(active&&prompt==promptGeneration)next();},phraseGapMs());}
+    handler.postDelayed(()->{if(active&&!paused&&prompt==promptGeneration)listen();},350);
+   }else{commitProgress();handler.postDelayed(()->{if(active&&!paused&&prompt==promptGeneration)next();},phraseGapMs());}
   };
   final String spokenPhrase=phrase,spokenTranslation=translation,spokenKey=phraseKey;
   final boolean before="before".equals(translationMode)||"both".equals(translationMode);
   final boolean after="after".equals(translationMode)||"both".equals(translationMode);
   Runnable english=()->{
-   if(!active||prompt!=promptGeneration)return;
+   if(!active||paused||prompt!=promptGeneration)return;
    report("Speaking English / 英語を再生中");
    // Count only when English playback is actually requested.
    recordEnglishPlayback(spokenKey);
    speak(spokenPhrase,()->{
-    if(!active||prompt!=promptGeneration||englishFinished[0])return;
+    if(!active||paused||prompt!=promptGeneration||englishFinished[0])return;
     englishFinished[0]=true;
     if(after){
      report("Speaking Japanese translation / 日本語訳を再生中");
@@ -213,7 +238,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     // Deadline applies to English hand-off, not to preceding Japanese audio.
     long hardLimit=Math.max(4500L,Math.min(8000L,(long)(spokenPhrase.length()*105L/Math.max(.6f,speechRate))+2000L));
     handler.postDelayed(()->{
-     if(active&&prompt==promptGeneration&&!advanced[0]&&!englishFinished[0]){
+     if(active&&!paused&&prompt==promptGeneration&&!advanced[0]&&!englishFinished[0]){
       englishFinished[0]=true;
       if(tts!=null)tts.stop();
       speechGeneration++;
@@ -228,7 +253,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   }else english.run();
  }
  private void speak(String phrase,Runnable done){
-  if(!active)return;
+  if(!active||paused)return;
   if(tts==null||!ready){
    if(ttsInitFailed){report("TTS unavailable / 読み上げ不可・次の処理へ");handler.postDelayed(done,500);}
    else handler.postDelayed(()->{if(active)speak(phrase,done);},500);
@@ -237,7 +262,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   final int generation=++speechGeneration;
   final boolean[] completed={false};
   final Runnable complete=()->{
-   if(!active||generation!=speechGeneration||completed[0])return;
+   if(!active||paused||generation!=speechGeneration||completed[0])return;
    completed[0]=true;
    handler.post(done);
   };
@@ -247,6 +272,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    @Override public void onDone(String id){if(utterance.equals(id))handler.post(complete);}
    @Override public void onError(String id){if(utterance.equals(id))handler.post(complete);}
   });
+  tts.setSpeechRate(speechRate);
   int result=tts.speak(phrase,TextToSpeech.QUEUE_FLUSH,null,utterance);
   if(result==TextToSpeech.ERROR){report("Speech playback error / 再生エラー・続行します");handler.postDelayed(complete,600);return;}
   // Some device TTS engines never send onDone. A bounded watchdog avoids a
@@ -254,7 +280,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   long estimated=(long)(phrase.length()*130L/Math.max(0.6f,speechRate))+6500L;
   long timeout=Math.max(9000L,Math.min(22000L,estimated));
   handler.postDelayed(()->{
-   if(active&&generation==speechGeneration&&!completed[0]){
+   if(active&&!paused&&generation==speechGeneration&&!completed[0]){
     report("Speech completion timeout / 再生終了通知なし・次へ進みます");
     if(tts!=null)tts.stop();
     complete.run();
@@ -262,7 +288,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   },timeout);
  }
  private void listen(){
-  if(!active||!conversation)return;
+  if(!active||paused||!conversation)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){report("Microphone permission missing; switching to repeat mode");conversation=false;commitProgress();next();return;}
   if(!SpeechRecognizer.isRecognitionAvailable(this)){report("Speech service unavailable; switching to repeat mode");conversation=false;commitProgress();next();return;}
@@ -326,7 +352,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":("phrase_key".equals(key)?"last_phrase_key":"last_answer")),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
- private void stopSession(){saveSession("stopped");active=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();}
+ private void stopSession(){saveSession("stopped");active=false;paused=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();}
  @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;ttsInitFailed=false;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active&&prompts==0)handler.post(this::next);}else{ttsInitFailed=true;report("Text-to-speech initialization failed / 音声エンジン初期化失敗");if(active&&prompts==0)handler.post(this::next);}}
  @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();if(japaneseTts!=null)japaneseTts.shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
