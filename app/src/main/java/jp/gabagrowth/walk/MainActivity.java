@@ -24,8 +24,8 @@ public class MainActivity extends Activity {
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
- private TextView spokenText, translatedText, answerText, playbackState, speedLabel; private SeekBar speedSlider; private boolean receiverRegistered=false;
- private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));}};
+ private TextView spokenText, translatedText, answerText, playbackState, speedLabel, gapLabel; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
+ private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));}};
  private String pendingWebTab="home"; private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.3.9  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.1  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -80,12 +80,44 @@ public class MainActivity extends Activity {
    public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
   });
   label("0.6×〜1.8×（0.1刻み）。次の発話から反映されます。",12);
+  card("⏱  Pause between phrases / 発話間隔");
+  gapLabel=label("",16);
+  gapSlider=new SeekBar(this);gapSlider.setMax(20);section.addView(gapSlider);
+  android.widget.RadioGroup gapModes=new android.widget.RadioGroup(this);
+  gapModes.setOrientation(android.widget.RadioGroup.HORIZONTAL);
+  android.widget.RadioButton automatic=new android.widget.RadioButton(this);automatic.setText("自動 / Auto");automatic.setId(View.generateViewId());
+  android.widget.RadioButton manual=new android.widget.RadioButton(this);manual.setText("手動 / Manual");manual.setId(View.generateViewId());
+  gapModes.addView(automatic);gapModes.addView(manual);section.addView(gapModes);
+  boolean autoGap=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("gap_auto",true);
+  gapModes.check(autoGap?automatic.getId():manual.getId());gapSlider.setEnabled(!autoGap);
+  gapModes.setOnCheckedChangeListener((group,id)->{
+   boolean auto=id==automatic.getId();gapSlider.setEnabled(!auto);
+   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("gap_auto",auto).apply();
+   Intent change=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_GAP_MODE);change.putExtra("gap_auto",auto);startService(change);
+   updateGapLabel(gapSlider.getProgress());
+  });
+  int savedGap=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("gap_step",4);
+  gapSlider.setProgress(Math.max(0,Math.min(20,savedGap)));
+  updateGapLabel(savedGap);
+  gapSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+   public void onProgressChanged(SeekBar b,int progress,boolean fromUser){updateGapLabel(progress);if(fromUser){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt("gap_step",progress).apply();Intent i=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_GAP);i.putExtra("gap_step",progress);startService(i);}}
+   public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
+  });
+  label("自動：英文の長さに応じて最低4.2秒（v3.9方式）。手動：0〜10秒（0.5秒刻み）。会話モードの自動間隔は回答後1.6秒です。",12);
   card("📝  Spoken English / 音声テキスト");
   label("再生中の英文と、会話モードで認識した自分の発言を表示します。",13);
   heading("Now speaking / 再生中");
   spokenText=label("学習を開始すると英文が表示されます。",18);
   heading("日本語訳 / Translation");
   translatedText=label("英文の日本語訳を表示します。",16);
+  masteredCheck=new CheckBox(this);masteredCheck.setText("☑ 習得済み：次回からこの英文・単語を再生しない");masteredCheck.setTextColor(NAVY);masteredCheck.setTextSize(15);section.addView(masteredCheck);
+  masteredCheck.setOnCheckedChangeListener((button,checked)->{
+   if(currentPhraseKey.isEmpty())return;
+   java.util.Set<String> saved=new java.util.HashSet<>(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet()));
+   if(checked)saved.add(currentPhraseKey);else saved.remove(currentPhraseKey);
+   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("mastered_phrases",saved).apply();
+  });
+  button("習得済み一覧を確認・解除 / Review mastered",this::reviewMastered);
   heading("Your answer / あなたの発言");
   answerText=label("会話モードで発言すると認識結果が表示されます。",16);
   playbackState=label("Ready",13);
@@ -136,7 +168,29 @@ public class MainActivity extends Activity {
   }catch(ApiException e){syncMessage("Googleログインエラー: "+e.getStatusCode()+"。SHA-1とOAuth設定をご確認ください。");}
  }
  private float speedValue(int step){return 0.6f+Math.max(0,Math.min(12,step))*0.1f;}
+ private void updateGapLabel(int step){if(gapLabel!=null)gapLabel.setText(String.format(Locale.US,"Pause between phrases: %.1f sec / 発話間隔",Math.max(0,Math.min(20,step))*0.5f));}
  private void updateSpeedLabel(int step){if(speedLabel!=null)speedLabel.setText(String.format(Locale.US,"Speech speed: %.1f×",speedValue(step)));}
+ private void setCurrentPhraseKey(String key){
+  currentPhraseKey=key==null?"":key;
+  if(masteredCheck!=null){masteredCheck.setOnCheckedChangeListener(null);
+   masteredCheck.setEnabled(!currentPhraseKey.isEmpty());
+   masteredCheck.setChecked(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet()).contains(currentPhraseKey));
+   masteredCheck.setOnCheckedChangeListener((button,checked)->{
+    if(currentPhraseKey.isEmpty())return;
+    java.util.Set<String> saved=new java.util.HashSet<>(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet()));
+    if(checked)saved.add(currentPhraseKey);else saved.remove(currentPhraseKey);
+    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("mastered_phrases",saved).apply();
+   });
+  }
+ }
+ private void reviewMastered(){
+  java.util.Set<String> mastered=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet());
+  new AlertDialog.Builder(this).setTitle("習得済み教材 / Mastered ("+mastered.size()+")")
+   .setMessage("チェックした英文・単語は次回以降の再生対象から除外されます。\n\n全件を再学習する場合はチェックを一括解除できます。")
+   .setNegativeButton("閉じる",null).setPositiveButton("すべて解除",(d,w)->{
+    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove("mastered_phrases").apply();setCurrentPhraseKey(currentPhraseKey);
+   }).show();
+ }
  private void startWalk(String mode,int minutes){Intent i=new Intent(this,WalkService.class);i.putExtra("mode",mode);i.putExtra("minutes",minutes);startForegroundService(i);Toast.makeText(this,"Walk & Talk started",Toast.LENGTH_SHORT).show();}
  private void startConversation(String mode,int minutes){
   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
@@ -248,7 +302,7 @@ public class MainActivity extends Activity {
   container.addView(nativeWalkScreen,new LinearLayout.LayoutParams(-1,0,1));container.addView(bottomTabs("walk"));
   setContentView(container);applySafeInsets(container);
  }
-  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));}
+  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));setCurrentPhraseKey(p.getString("last_phrase_key",""));}
  @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(walkUpdates);receiverRegistered=false;}super.onPause();}
  @Override protected void onNewIntent(Intent intent){
    super.onNewIntent(intent);
