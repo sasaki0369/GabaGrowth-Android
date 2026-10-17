@@ -12,7 +12,7 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
  private float speechRate=1.0f;
@@ -21,7 +21,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(!gapAuto)return Math.max(0,Math.min(20,gapStep))*500L;
   return conversation?1600L:Math.max(4200L,Math.round(lastPhraseLength*85.0));
  }
- private TextToSpeech tts;
+ private TextToSpeech tts; private TextToSpeech japaneseTts; private boolean japaneseReady=false; private String translationMode="before";
  private SpeechRecognizer recognizer;
  private boolean ready=false, active=false, conversation=false, listening=false, ttsInitFailed=false;
  private int index=0, currentSlot=-1, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0, promptGeneration=0;
@@ -45,12 +45,22 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   "How do you prioritize infrastructure investment?",
   "What results have you achieved so far?",
   "Thank you. That is very helpful."};
- @Override public void onCreate(){super.onCreate();tts=new TextToSpeech(this,this);}
+ @Override public void onCreate(){super.onCreate();
+  japaneseTts=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS&&japaneseTts!=null){
+   int result=japaneseTts.setLanguage(Locale.JAPANESE);
+   japaneseReady=result!=TextToSpeech.LANG_MISSING_DATA&&result!=TextToSpeech.LANG_NOT_SUPPORTED;
+  }});
+  tts=new TextToSpeech(this,this);
+ }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent!=null&&STOP.equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
   if(intent!=null&&SET_GAP.equals(intent.getAction())){gapStep=Math.max(0,Math.min(20,intent.getIntExtra("gap_step",4)));return START_NOT_STICKY;}
+  if(intent!=null&&SET_TRANSLATION_MODE.equals(intent.getAction())){
+   translationMode=validTranslationMode(intent.getStringExtra("translation_mode"));return START_NOT_STICKY;
+  }
   if(intent!=null&&SET_GAP_MODE.equals(intent.getAction())){gapAuto=intent.getBooleanExtra("gap_auto",true);return START_NOT_STICKY;}
+  translationMode=validTranslationMode(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getString("translation_mode","before"));
   gapStep=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("gap_step",4);
   gapAuto=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("gap_auto",true);
   speechRate=0.6f+getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("speed_step",4)*0.1f;
@@ -92,6 +102,41 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  }
  private String translate(String phrase){switch(phrase){case "How do you manage aging infrastructure?":return "老朽化したインフラをどのように管理していますか？";case "How do you decide which roads to repair first?":return "どの道路を優先して補修するか、どのように決めていますか？";case "Could you give me a specific example?":return "具体的な例を挙げていただけますか？";case "How do government agencies share infrastructure data?":return "行政機関はインフラのデータをどのように共有していますか？";case "What are the biggest challenges for local councils?":return "地方自治体が直面する最大の課題は何ですか？";case "How do you measure the benefits of digital technology?":return "デジタル技術の効果をどのように測定していますか？";case "We would like to learn about your infrastructure management approach.":return "皆さんのインフラ管理の方法について学びたいと考えています。";case "How do you use digital technology to reduce maintenance costs?":return "維持管理費の削減にデジタル技術をどのように活用していますか？";case "Could you explain how different councils work together?":return "自治体同士がどのように連携しているか説明していただけますか？";case "How do you prioritize infrastructure investment?":return "インフラ投資の優先順位をどのように決めていますか？";case "What results have you achieved so far?":return "これまでにどのような成果を上げていますか？";case "Thank you. That is very helpful.":return "ありがとうございます。大変参考になりました。";default:return "";}}
  private String[] lines(){return "evening".equals(mode)?evening:morning;}
+ private String validTranslationMode(String value){
+  return "after".equals(value)||"both".equals(value)||"none".equals(value)?value:"before";
+ }
+ private void recordEnglishPlayback(String key){
+  if(key==null||key.isEmpty())return;
+  android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);
+  String k="playcount_v43:"+key;
+  int count=p.getInt(k,0)+1;
+  p.edit().putInt(k,count).putLong("lastplayed_v43:"+key,System.currentTimeMillis()).apply();
+  reportText("play_count",Integer.toString(count));
+ }
+ private void speakJapanese(String translation,Runnable done){
+  if(!active)return;
+  if(translation==null||translation.trim().isEmpty()||!japaneseReady||japaneseTts==null){
+   handler.post(done);return;
+  }
+  final int generation=++speechGeneration;
+  final boolean[] completed={false};
+  final Runnable complete=()->{
+   if(!active||generation!=speechGeneration||completed[0])return;
+   completed[0]=true;handler.post(done);
+  };
+  String utterance="ja-"+generation+"-"+SystemClock.elapsedRealtime();
+  japaneseTts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
+   @Override public void onStart(String id){}
+   @Override public void onDone(String id){if(utterance.equals(id))handler.post(complete);}
+   @Override public void onError(String id){if(utterance.equals(id))handler.post(complete);}
+  });
+  int result=japaneseTts.speak(translation,TextToSpeech.QUEUE_FLUSH,null,utterance);
+  if(result==TextToSpeech.ERROR){handler.post(complete);return;}
+  long timeout=Math.max(7000L,Math.min(30000L,translation.length()*220L+4500L));
+  handler.postDelayed(()->{if(active&&generation==speechGeneration&&!completed[0]){
+   japaneseTts.stop();complete.run();
+  }},timeout);
+ }
  private void next(){
   if(!active)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
@@ -117,7 +162,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   // A device TTS engine may never call onDone. Conversation must still reach
   // SpeechRecognizer. A short independent deadline is not tied to TTS callbacks.
   final int prompt=++promptGeneration;
-  final boolean[] advanced={false};
+  final boolean[] advanced={false}; final boolean[] englishFinished={false};
   Runnable advance=()->{
    if(!active||prompt!=promptGeneration||advanced[0])return;
    advanced[0]=true;
@@ -128,17 +173,39 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     handler.postDelayed(()->{if(active&&prompt==promptGeneration)listen();},350);
    }else{commitProgress();handler.postDelayed(()->{if(active&&prompt==promptGeneration)next();},phraseGapMs());}
   };
-  speak(phrase,advance);
-  if(conversation){
-   // Guaranteed hand-off even when TTS callbacks and its own watchdog fail.
-   long hardLimit=Math.max(4500L,Math.min(8000L,(long)(phrase.length()*105L/Math.max(.6f,speechRate))+2000L));
-   handler.postDelayed(()->{
-    if(active&&prompt==promptGeneration&&!advanced[0]){
-     report("TTS hand-off deadline / 聞き取りへ切り替えます");
-     advance.run();
-    }
-   },hardLimit);
-  }
+  final String spokenPhrase=phrase,spokenTranslation=translation,spokenKey=phraseKey;
+  final boolean before="before".equals(translationMode)||"both".equals(translationMode);
+  final boolean after="after".equals(translationMode)||"both".equals(translationMode);
+  Runnable english=()->{
+   if(!active||prompt!=promptGeneration)return;
+   report("Speaking English / 英語を再生中");
+   // Count only when English playback is actually requested.
+   recordEnglishPlayback(spokenKey);
+   speak(spokenPhrase,()->{
+    if(!active||prompt!=promptGeneration||englishFinished[0])return;
+    englishFinished[0]=true;
+    if(after){
+     report("Speaking Japanese translation / 日本語訳を再生中");
+     speakJapanese(spokenTranslation,advance);
+    }else advance.run();
+   });
+   if(conversation){
+    // Deadline applies to English hand-off, not to preceding Japanese audio.
+    long hardLimit=Math.max(4500L,Math.min(8000L,(long)(spokenPhrase.length()*105L/Math.max(.6f,speechRate))+2000L));
+    handler.postDelayed(()->{
+     if(active&&prompt==promptGeneration&&!advanced[0]&&!englishFinished[0]){
+      englishFinished[0]=true;
+      if(tts!=null)tts.stop();
+      speechGeneration++;
+      if(after){speakJapanese(spokenTranslation,advance);}else advance.run();
+     }
+    },hardLimit);
+   }
+  };
+  if(before){
+   report("Speaking Japanese translation / 日本語訳を再生中");
+   speakJapanese(spokenTranslation,english);
+  }else english();
  }
  private void speak(String phrase,Runnable done){
   if(!active)return;
@@ -239,8 +306,8 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":("phrase_key".equals(key)?"last_phrase_key":"last_answer")),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
- private void stopSession(){saveSession("stopped");active=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();}
+ private void stopSession(){saveSession("stopped");active=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();}
  @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;ttsInitFailed=false;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active&&prompts==0)handler.post(this::next);}else{ttsInitFailed=true;report("Text-to-speech initialization failed / 音声エンジン初期化失敗");if(active&&prompts==0)handler.post(this::next);}}
- @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();super.onDestroy();}
+ @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();if(japaneseTts!=null)japaneseTts.shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
 }
