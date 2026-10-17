@@ -12,7 +12,7 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
  private float speechRate=1.0f;
@@ -24,6 +24,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private TextToSpeech tts; private TextToSpeech japaneseTts; private boolean japaneseReady=false; private String translationMode="before";
  private SpeechRecognizer recognizer;
  private boolean ready=false, active=false, conversation=false, listening=false, ttsInitFailed=false;
+ private final java.util.ArrayList<Integer> playedSlots=new java.util.ArrayList<>();
  private int index=0, currentSlot=-1, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0, promptGeneration=0;
  private String progressKey="";
  private String progressKey(){android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);return "resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":"+mode;}
@@ -54,6 +55,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent!=null&&STOP.equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
+  if(intent!=null&&PREVIOUS.equals(intent.getAction())){previousPhrase();return START_NOT_STICKY;}
   if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
   if(intent!=null&&SET_GAP.equals(intent.getAction())){gapStep=Math.max(0,Math.min(20,intent.getIntExtra("gap_step",4)));return START_NOT_STICKY;}
   if(intent!=null&&SET_TRANSLATION_MODE.equals(intent.getAction())){
@@ -72,7 +74,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   conversation=intent!=null&&intent.getBooleanExtra("conversation",false);
   endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
   qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.load(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week"))))qaItems.put(q);}}catch(Exception ignored){}
-  progressKey=progressKey();index=Math.max(0,getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt(progressKey,0));currentSlot=-1;
+  playedSlots.clear();progressKey=progressKey();index=Math.max(0,getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt(progressKey,0));currentSlot=-1;
   active=true;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Walk & Talk",NotificationManager.IMPORTANCE_LOW));
@@ -137,6 +139,23 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    japaneseTts.stop();complete.run();
   }},timeout);
  }
+ private void previousPhrase(){
+  if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
+  if(playedSlots.size()<2){report("No previous phrase in this session / この回に前の文章はありません");return;}
+  // Drop the current phrase and replay the preceding one. The replay is also
+  // recorded as a new English playback, while the resume cursor is rewound.
+  playedSlots.remove(playedSlots.size()-1);
+  int target=playedSlots.remove(playedSlots.size()-1);
+  releaseRecognizer();
+  speechGeneration++;promptGeneration++;
+  handler.removeCallbacksAndMessages(null);
+  if(tts!=null)tts.stop();
+  if(japaneseTts!=null)japaneseTts.stop();
+  index=target;currentSlot=-1;
+  getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,target).apply();
+  report("Replaying previous phrase / 一つ前の文章を再生します");
+  handler.post(this::next);
+ }
  private void next(){
   if(!active)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
@@ -156,6 +175,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    phrase=candidate;translation=candidateTranslation;phraseKey=key;currentSlot=index-1;break;
   }
   if(phrase==null){report("All selected phrases mastered / 対象の教材はすべて習得済みです");reportText("phrase","再生対象の英文・単語がありません。習得済みのチェックを解除してください。");reportText("translation","");reportText("phrase_key","");finish();return;}
+  playedSlots.add(currentSlot);
   lastPhraseLength=phrase.length();prompts++;
   reportText("phrase_key",phraseKey);
   reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");report("Speaking question / 質問を再生中");
@@ -205,7 +225,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(before){
    report("Speaking Japanese translation / 日本語訳を再生中");
    speakJapanese(spokenTranslation,english);
-  }else english();
+  }else english.run();
  }
  private void speak(String phrase,Runnable done){
   if(!active)return;
