@@ -24,12 +24,13 @@ public class MainActivity extends Activity {
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
- private TextView spokenText, translatedText, answerText, playbackState, speedLabel, gapLabel, playCountLabel; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
- private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));}};
+ private TextView spokenText, translatedText, answerText, playbackState, speedLabel, gapLabel, playCountLabel, pauseResumeButton; private boolean walkPaused=false; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
+ private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));if(i.hasExtra("paused")){walkPaused=i.getBooleanExtra("paused",false);refreshPauseResumeButton();}}};
  private String pendingWebTab="home"; private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
  private void button(String title,Runnable task){TextView b=new TextView(this);b.setText(title);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER_VERTICAL);b.setPadding(dp(18),0,dp(12),0);GradientDrawable bg=gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18);b.setBackground(bg);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(64));lp.setMargins(0,0,0,dp(10));section.addView(b,lp);b.setOnClickListener(v->task.run());}
+ private void refreshPauseResumeButton(){if(pauseResumeButton!=null)pauseResumeButton.setText(walkPaused?"▶   再開 / Resume":"⏸   一時停止 / Pause");}
  private void heading(String text){TextView t=new TextView(this);t.setText(text);t.setTextSize(20);t.setTypeface(null,Typeface.BOLD);t.setTextColor(NAVY);t.setPadding(0,dp(6),0,dp(15));section.addView(t);}
  private void card(String title){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(18),dp(16),dp(18),dp(14));c.setBackground(gradient(WHITE,Color.rgb(245,250,255),24));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(16));root.addView(c,lp);section=c;heading(title);}
  private void hero(){
@@ -37,7 +38,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.5  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.6  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -164,10 +165,11 @@ public class MainActivity extends Activity {
   heading("Your answer / あなたの発言");
   answerText=label("会話モードで発言すると認識結果が表示されます。",16);
   playbackState=label("Ready",13);
-  button("⏸   一時停止 / Pause",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.PAUSE);startService(i);});
-  button("▶   再開 / Resume",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.RESUME);startService(i);});
+  button("⏸   一時停止 / Pause",()->{Intent i=new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE);startService(i);});
+  pauseResumeButton=(TextView)section.getChildAt(section.getChildCount()-1);
+  walkPaused=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("walk_paused",false);refreshPauseResumeButton();
   button("⏮   一つ前の文章に戻る / Previous phrase",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS);startService(i);});
-  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");});
+  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");walkPaused=false;refreshPauseResumeButton();});
   card("🎙  Conversation");
   button("朝の会話10分 / Morning Conversation",()->startConversation("morning",10));
   button("帰りの会話10分 / Evening Conversation",()->startConversation("evening",10));
@@ -349,7 +351,7 @@ public class MainActivity extends Activity {
   container.addView(nativeWalkScreen,new LinearLayout.LayoutParams(-1,0,1));container.addView(bottomTabs("walk"));
   setContentView(container);applySafeInsets(container);
  }
-  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));setCurrentPhraseKey(p.getString("last_phrase_key",""));}
+  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));setCurrentPhraseKey(p.getString("last_phrase_key",""));walkPaused=p.getBoolean("walk_paused",false);refreshPauseResumeButton();}
  @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(walkUpdates);receiverRegistered=false;}super.onPause();}
  @Override protected void onNewIntent(Intent intent){
    super.onNewIntent(intent);
