@@ -82,6 +82,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
   qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.load(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week"))))qaItems.put(q);}}catch(Exception ignored){}
   playedSlots.clear();progressKey=progressKey();index=Math.max(0,getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt(progressKey,0));currentSlot=-1;
+  getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("walk_paused",false).apply();reportPauseState(false);
   active=true;paused=false;pausedAt=0L;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Walk & Talk",NotificationManager.IMPORTANCE_LOW));
@@ -152,7 +153,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   paused=true;pausedAt=SystemClock.elapsedRealtime();
   speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);
   releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();
-  report("Paused / 一時停止中");
+  reportPauseState(true);report("Paused / 一時停止中");
  }
  private void resumeWalk(){
   if(!active||!paused)return;
@@ -162,7 +163,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    index=currentSlot;currentSlot=-1;
    if(!playedSlots.isEmpty())playedSlots.remove(playedSlots.size()-1);
   }
-  report("Resumed / 再開しました");handler.post(this::next);
+  reportPauseState(false);report("Resumed / 再開しました");handler.post(this::next);
  }
  private void previousPhrase(){
   if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
@@ -350,9 +351,10 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   }catch(Exception ex){android.util.Log.e("GabaGrowth","Unable to save walk",ex);}
  }
  private void reportText(String key,String value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putString("phrase".equals(key)?"last_phrase":("translation".equals(key)?"last_translation":("phrase_key".equals(key)?"last_phrase_key":"last_answer")),value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra(key,value);sendBroadcast(update);}
+ private void reportPauseState(boolean value){getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("walk_paused",value).apply();Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("paused",value);sendBroadcast(update);}
  private void report(String message){Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());update.putExtra("status",message);sendBroadcast(update);}
  private void releaseRecognizer(){recognitionGeneration++;listening=false;if(recognizer!=null){try{recognizer.cancel();recognizer.destroy();}catch(Exception ignored){}recognizer=null;}}
- private void stopSession(){saveSession("stopped");active=false;paused=false;speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();}
+ private void stopSession(){saveSession("stopped");active=false;paused=false;reportPauseState(false);speechGeneration++;promptGeneration++;handler.removeCallbacksAndMessages(null);releaseRecognizer();if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();}
  @Override public void onInit(int status){if(status==TextToSpeech.SUCCESS){ready=true;ttsInitFailed=false;tts.setLanguage(Locale.US);tts.setSpeechRate(speechRate);if(active&&prompts==0)handler.post(this::next);}else{ttsInitFailed=true;report("Text-to-speech initialization failed / 音声エンジン初期化失敗");if(active&&prompts==0)handler.post(this::next);}}
  @Override public void onDestroy(){stopSession();if(tts!=null)tts.shutdown();if(japaneseTts!=null)japaneseTts.shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
