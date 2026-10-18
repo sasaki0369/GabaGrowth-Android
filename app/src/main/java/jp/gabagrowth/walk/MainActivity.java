@@ -25,7 +25,7 @@ public class MainActivity extends Activity {
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
  private TextView spokenText, translatedText, answerText, playbackState, speedLabel, gapLabel, playCountLabel, pauseResumeButton; private boolean walkPaused=false; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
- private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));if(i.hasExtra("paused")){walkPaused=i.getBooleanExtra("paused",false);refreshPauseResumeButton();}}};
+ private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("accent_counts")&&playCountLabel!=null)playCountLabel.setText(playCountLabel.getText()+" (米国 / 豪州: "+i.getStringExtra("accent_counts")+")");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));if(i.hasExtra("paused")){walkPaused=i.getBooleanExtra("paused",false);refreshPauseResumeButton();}}};
  private String pendingWebTab="home"; private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.6  •  English (US)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.7  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -75,6 +75,24 @@ public class MainActivity extends Activity {
    .setMessage("選択中の教材・絞り込み条件の朝と帰りの再生位置をリセットします。習得済みチェックは維持されます。")
    .setNegativeButton("キャンセル",null)
    .setPositiveButton("リセット",(d,w)->{android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String prefix="resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":";getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove(prefix+"morning").remove(prefix+"evening").apply();Toast.makeText(this,"次回は先頭の未習得項目から再生します",Toast.LENGTH_LONG).show();}).show());
+  card("🌏  English accents / 英語のアクセント");
+  label("再生する英語を選択（両方選ぶと米国→豪州の順で各1回）",14);
+  android.content.SharedPreferences accentPrefs=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);
+  CheckBox usAccent=new CheckBox(this);usAccent.setText("🇺🇸 アメリカ英語 / American English");usAccent.setTextColor(NAVY);section.addView(usAccent);
+  CheckBox auAccent=new CheckBox(this);auAccent.setText("🇦🇺 オーストラリア英語 / Australian English");auAccent.setTextColor(NAVY);section.addView(auAccent);
+  usAccent.setChecked(accentPrefs.getBoolean("accent_us",true));
+  auAccent.setChecked(accentPrefs.getBoolean("accent_au",false));
+  android.widget.CompoundButton.OnCheckedChangeListener accentsChanged=(button,checked)->{
+   if(!usAccent.isChecked()&&!auAccent.isChecked()){
+    button.setChecked(true);return;
+    Toast.makeText(this,"少なくとも一つ選択してください",Toast.LENGTH_SHORT).show();
+   }
+   boolean us=usAccent.isChecked(),au=auAccent.isChecked();
+   accentPrefs.edit().putBoolean("accent_us",us).putBoolean("accent_au",au).apply();
+   Intent setting=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_ACCENTS);
+   setting.putExtra("us",us);setting.putExtra("au",au);startService(setting);
+  };
+  usAccent.setOnCheckedChangeListener(accentsChanged);auAccent.setOnCheckedChangeListener(accentsChanged);
   card("🔊  English playback speed / 英語の再生速度");
   speedLabel=label("",16);
   speedSlider=new SeekBar(this);speedSlider.setMax(12);section.addView(speedSlider);
