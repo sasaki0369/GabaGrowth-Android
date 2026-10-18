@@ -1,0 +1,1 @@
+v4.7: American/Australian English checkbox selection; US then AU sequential playback when both enabled. Playback counts by accent; at least one selection required. Japanese translation modes preserved.
