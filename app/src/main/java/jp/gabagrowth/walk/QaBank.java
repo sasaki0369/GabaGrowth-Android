@@ -13,6 +13,17 @@ public final class QaBank {
   if(quoted)throw new IllegalArgumentException("Unclosed CSV quote");row.add(field.toString());if(row.stream().anyMatch(v->!v.isEmpty()))lines.add(row);if(lines.isEmpty())throw new IllegalArgumentException("Empty CSV");ArrayList<String> cols=lines.remove(0);for(String h:HEADERS)if(!cols.contains(h))throw new IllegalArgumentException("Missing column: "+h);
   JSONArray result=new JSONArray();HashSet<String> ids=new HashSet<>();for(ArrayList<String> line:lines){if(line.size()!=cols.size())throw new IllegalArgumentException("Invalid column count on row "+(result.length()+2));JSONObject obj=new JSONObject();for(String h:HEADERS)obj.put(h,line.get(cols.indexOf(h)));String id=obj.optString("id");if(id.isEmpty()||obj.optString("question_en").isEmpty()||obj.optString("answer_en").isEmpty()||!ids.add(id))throw new IllegalArgumentException("Invalid or duplicate ID: "+id);result.put(obj);}if(result.length()==0)throw new IllegalArgumentException("No Q&A");return result;
  }
+ /** Decode URL-escaped display names without changing dataset IDs or saved rows. */
+ public static String displayFilename(String name){
+  if(name==null)return "CSV";
+  // Only decode valid percent escapes; literal plus signs must stay plus signs.
+  if(!java.util.regex.Pattern.compile("%[0-9A-Fa-f]{2}").matcher(name).find())return name;
+  try{
+   String decoded=java.net.URLDecoder.decode(name.replace("+","%2B"),"UTF-8");
+   // A malformed UTF-8 sequence must not corrupt a previously readable name.
+   return decoded.indexOf('\uFFFD')>=0?name:decoded;
+  }catch(IllegalArgumentException|java.io.UnsupportedEncodingException ex){return name;}
+ }
  public static final String DEFAULT_ID="__bundled__";
  private static final String LIBRARY="qa_library_v2";
  private static android.content.SharedPreferences prefs(Context c){return c.getSharedPreferences(PREF,Context.MODE_PRIVATE);}
