@@ -84,8 +84,9 @@ public class MainActivity extends Activity {
   auAccent.setChecked(accentPrefs.getBoolean("accent_au",false));
   android.widget.CompoundButton.OnCheckedChangeListener accentsChanged=(button,checked)->{
    if(!usAccent.isChecked()&&!auAccent.isChecked()){
-    button.setChecked(true);return;
     Toast.makeText(this,"少なくとも一つ選択してください",Toast.LENGTH_SHORT).show();
+    button.setChecked(true);
+    return;
    }
    boolean us=usAccent.isChecked(),au=auAccent.isChecked();
    accentPrefs.edit().putBoolean("accent_us",us).putBoolean("accent_au",au).apply();
