@@ -1,0 +1,1 @@
+v5.0: Lesson view moved directly beneath Walk lesson launch controls and above audio settings. English and Japanese text enlarged and selectable. Previous / Pause-Resume / Next arranged side by side with large touch targets. Navigation while paused uses v4.9 WalkService behavior. Existing history, translation, accent and CSV settings preserved. APK build not verified.
