@@ -30,7 +30,13 @@ public class MainActivity extends Activity {
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
  private void button(String title,Runnable task){TextView b=new TextView(this);b.setText(title);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER_VERTICAL);b.setPadding(dp(18),0,dp(12),0);GradientDrawable bg=gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18);b.setBackground(bg);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(64));lp.setMargins(0,0,0,dp(10));section.addView(b,lp);b.setOnClickListener(v->task.run());}
- private void refreshPauseResumeButton(){if(pauseResumeButton!=null)pauseResumeButton.setText(walkPaused?"▶   再開 / Resume":"⏸   一時停止 / Pause");}
+ private void refreshPauseResumeButton(){if(pauseResumeButton!=null)pauseResumeButton.setText(walkPaused?"▶\n再開":"⏸\n一時停止");}
+ private TextView lessonControl(String text,LinearLayout parent,Runnable action){
+  TextView b=new TextView(this);b.setText(text);b.setTextSize(17);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER);
+  b.setBackground(gradient(Color.rgb(222,240,252),Color.rgb(207,235,241),16));
+  LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1f);lp.setMargins(dp(3),0,dp(3),0);parent.addView(b,lp);
+  b.setOnClickListener(v->action.run());return b;
+ }
  private void heading(String text){TextView t=new TextView(this);t.setText(text);t.setTextSize(20);t.setTypeface(null,Typeface.BOLD);t.setTextColor(NAVY);t.setPadding(0,dp(6),0,dp(15));section.addView(t);}
  private void card(String title){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(18),dp(16),dp(18),dp(14));c.setBackground(gradient(WHITE,Color.rgb(245,250,255),24));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(16));root.addView(c,lp);section=c;heading(title);}
  private void hero(){
@@ -38,7 +44,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.4.8  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.0  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -75,6 +81,33 @@ public class MainActivity extends Activity {
    .setMessage("選択中の教材・絞り込み条件の朝と帰りの再生位置をリセットします。習得済みチェックは維持されます。")
    .setNegativeButton("キャンセル",null)
    .setPositiveButton("リセット",(d,w)->{android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String prefix="resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":";getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove(prefix+"morning").remove(prefix+"evening").apply();Toast.makeText(this,"次回は先頭の未習得項目から再生します",Toast.LENGTH_LONG).show();}).show());
+  card("📖  レッスン画面 / Lesson view");
+  label("講師と画面を見ながら学習。再生中も一時停止中も前後に移動できます。",13);
+  heading("Now speaking / 再生中");
+  spokenText=label("学習を開始すると英文が表示されます。",23);
+  spokenText.setTypeface(null,Typeface.BOLD);spokenText.setTextIsSelectable(true);
+  heading("日本語訳 / Translation");
+  translatedText=label("英文の日本語訳を表示します。",20);translatedText.setTextIsSelectable(true);
+  playCountLabel=label("英語の再生回数： 0 回",15);
+  masteredCheck=new CheckBox(this);masteredCheck.setText("☑ 習得済み：次回からこの英文・単語を再生しない");masteredCheck.setTextColor(NAVY);masteredCheck.setTextSize(15);section.addView(masteredCheck);
+  masteredCheck.setOnCheckedChangeListener((button,checked)->{
+   if(currentPhraseKey.isEmpty())return;
+   java.util.Set<String> saved=new java.util.HashSet<>(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet()));
+   if(checked)saved.add(currentPhraseKey);else saved.remove(currentPhraseKey);
+   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("mastered_phrases",saved).apply();
+  });
+  button("習得済み一覧を確認・解除 / Review mastered",this::reviewMastered);
+  heading("Your answer / あなたの発言");
+  answerText=label("会話モードで発言すると認識結果が表示されます。",16);
+  playbackState=label("Ready",13);
+  // Large controls directly beneath the bilingual text, reachable without scrolling past settings.
+  LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);
+  LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(76));controlsLp.setMargins(0,dp(8),0,dp(12));section.addView(controls,controlsLp);
+  TextView previous=lessonControl("⏮\n前へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS)));
+  pauseResumeButton=lessonControl("⏸\n一時停止",controls,()->startService(new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE)));
+  lessonControl("⏭\n次へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.NEXT_PHRASE)));
+  walkPaused=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("walk_paused",false);refreshPauseResumeButton();
+  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");walkPaused=false;refreshPauseResumeButton();});
   card("🌏  English accents / 英語のアクセント");
   label("再生する英語を選択（両方選ぶと米国→豪州の順で各1回）",14);
   android.content.SharedPreferences accentPrefs=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);
@@ -166,29 +199,6 @@ public class MainActivity extends Activity {
    Intent change=new Intent(MainActivity.this,WalkService.class).setAction(WalkService.SET_TRANSLATION_MODE);
    change.putExtra("translation_mode",value);startService(change);
   });
-  card("📝  Spoken English / 音声テキスト");
-  label("再生中の英文と、会話モードで認識した自分の発言を表示します。",13);
-  heading("Now speaking / 再生中");
-  spokenText=label("学習を開始すると英文が表示されます。",18);
-  heading("日本語訳 / Translation");
-  translatedText=label("英文の日本語訳を表示します。",16);
-  playCountLabel=label("英語の再生回数： 0 回",15);
-  masteredCheck=new CheckBox(this);masteredCheck.setText("☑ 習得済み：次回からこの英文・単語を再生しない");masteredCheck.setTextColor(NAVY);masteredCheck.setTextSize(15);section.addView(masteredCheck);
-  masteredCheck.setOnCheckedChangeListener((button,checked)->{
-   if(currentPhraseKey.isEmpty())return;
-   java.util.Set<String> saved=new java.util.HashSet<>(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet()));
-   if(checked)saved.add(currentPhraseKey);else saved.remove(currentPhraseKey);
-   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("mastered_phrases",saved).apply();
-  });
-  button("習得済み一覧を確認・解除 / Review mastered",this::reviewMastered);
-  heading("Your answer / あなたの発言");
-  answerText=label("会話モードで発言すると認識結果が表示されます。",16);
-  playbackState=label("Ready",13);
-  button("⏸   一時停止 / Pause",()->{Intent i=new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE);startService(i);});
-  pauseResumeButton=(TextView)section.getChildAt(section.getChildCount()-1);
-  walkPaused=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("walk_paused",false);refreshPauseResumeButton();
-  button("⏮   一つ前の文章に戻る / Previous phrase",()->{Intent i=new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS);startService(i);});
-  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");walkPaused=false;refreshPauseResumeButton();});
   card("🎙  Conversation");
   button("朝の会話10分 / Morning Conversation",()->startConversation("morning",10));
   button("帰りの会話10分 / Evening Conversation",()->startConversation("evening",10));
