@@ -12,7 +12,7 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS", PAUSE="PAUSE", RESUME="RESUME", SET_JAPANESE_SPEED="SET_JAPANESE_SPEED", SET_ACCENTS="SET_ACCENTS";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS", NEXT_PHRASE="NEXT_PHRASE", PAUSE="PAUSE", RESUME="RESUME", SET_JAPANESE_SPEED="SET_JAPANESE_SPEED", SET_ACCENTS="SET_ACCENTS";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
  private float speechRate=1.0f, japaneseSpeechRate=1.3f;
@@ -63,6 +63,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(intent!=null&&SET_ACCENTS.equals(intent.getAction())){accentUs=intent.getBooleanExtra("us",true);accentAu=intent.getBooleanExtra("au",false);if(!accentUs&&!accentAu)accentUs=true;return START_NOT_STICKY;}
   if(intent!=null&&SET_JAPANESE_SPEED.equals(intent.getAction())){japaneseSpeechRate=Math.max(0.6f,Math.min(2.0f,intent.getFloatExtra("speed",1.3f)));if(japaneseTts!=null&&japaneseReady)japaneseTts.setSpeechRate(japaneseSpeechRate);return START_NOT_STICKY;}
   if(intent!=null&&PREVIOUS.equals(intent.getAction())){previousPhrase();return START_NOT_STICKY;}
+  if(intent!=null&&NEXT_PHRASE.equals(intent.getAction())){nextPhrase();return START_NOT_STICKY;}
   if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
   if(intent!=null&&SET_GAP.equals(intent.getAction())){gapStep=Math.max(0,Math.min(20,intent.getIntExtra("gap_step",4)));return START_NOT_STICKY;}
   if(intent!=null&&SET_TRANSLATION_MODE.equals(intent.getAction())){
@@ -172,22 +173,64 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   }
   reportPauseState(false);report("Resumed / 再開しました");handler.post(this::next);
  }
+ private int phraseCount(){
+  String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
+  return qaItems.length()>0?qaItems.length()*("both".equals(direction)?2:1):lines().length;
+ }
+ private boolean showPhraseAt(int start){
+  int available=phraseCount();if(available<=0)return false;
+  String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
+  java.util.Set<String> mastered=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet());
+  for(int offset=0;offset<available;offset++){
+   int slot=start+offset;int normalized=Math.floorMod(slot,available);
+   String phrase,translation,key;
+   if(qaItems.length()>0){
+    org.json.JSONObject q=qaItems.optJSONObject(normalized%qaItems.length());if(q==null)continue;
+    boolean answer="answer".equals(direction)||("both".equals(direction)&&normalized>=qaItems.length());
+    phrase=q.optString(answer?"answer_en":"question_en");translation=q.optString(answer?"answer_ja":"question_ja");
+    key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(answer?"answer":"question");
+   }else{phrase=lines()[normalized];translation=translate(phrase);key="default:"+phrase;}
+   if(phrase.trim().isEmpty()||mastered.contains(key))continue;
+   currentSlot=slot;index=slot+1;
+   reportText("phrase_key",key);reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");
+   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,slot).apply();
+   return true;
+  }
+  return false;
+ }
+ private void interruptForNavigation(){
+  releaseRecognizer();speechGeneration++;promptGeneration++;recognitionGeneration++;
+  handler.removeCallbacksAndMessages(null);
+  if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();
+ }
  private void previousPhrase(){
   if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
   if(playedSlots.size()<2){report("No previous phrase in this session / この回に前の文章はありません");return;}
-  // Drop the current phrase and replay the preceding one. The replay is also
-  // recorded as a new English playback, while the resume cursor is rewound.
+  interruptForNavigation();
   playedSlots.remove(playedSlots.size()-1);
-  int target=playedSlots.remove(playedSlots.size()-1);
-  releaseRecognizer();
-  speechGeneration++;promptGeneration++;
-  handler.removeCallbacksAndMessages(null);
-  if(tts!=null)tts.stop();
-  if(japaneseTts!=null)japaneseTts.stop();
+  int target=playedSlots.get(playedSlots.size()-1);
   index=target;currentSlot=-1;
-  getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,target).apply();
-  report("Replaying previous phrase / 一つ前の文章を再生します");
-  handler.post(this::next);
+  if(paused){
+   if(showPhraseAt(target))report("Paused / 一時停止中・前の文章を表示中");
+  }else{
+   playedSlots.remove(playedSlots.size()-1);
+   report("Replaying previous phrase / 一つ前の文章を再生します");handler.post(this::next);
+  }
+ }
+ private void nextPhrase(){
+  if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
+  interruptForNavigation();
+  int target=index;
+  if(currentSlot>=0){target=currentSlot+1;if(!playedSlots.isEmpty())playedSlots.remove(playedSlots.size()-1);}
+  currentSlot=-1;index=target;
+  if(paused){
+   if(showPhraseAt(target)){
+    playedSlots.add(currentSlot);
+    report("Paused / 一時停止中・次の文章を表示中");
+   }else report("All selected phrases mastered / 未習得の文章がありません");
+  }else{
+   report("Skipping to next phrase / 次の文章へ進みます");handler.post(this::next);
+  }
  }
  private void next(){
   if(!active||paused)return;
