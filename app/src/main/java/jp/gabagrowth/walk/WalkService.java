@@ -192,11 +192,21 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    }else{phrase=lines()[normalized];translation=translate(phrase);key="default:"+phrase;}
    if(phrase.trim().isEmpty()||mastered.contains(key))continue;
    currentSlot=slot;index=slot+1;
-   reportText("phrase_key",key);reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");
+   reportText("phrase_key",key);reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");reportPhrasePosition(slot);
    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,slot).apply();
    return true;
   }
   return false;
+ }
+ private void reportPhrasePosition(int slot){
+  int total=phraseCount();
+  if(total<=0)return;
+  int current=Math.floorMod(slot,total)+1;
+  getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit()
+   .putInt("last_phrase_position",current).putInt("last_phrase_total",total).apply();
+  Intent update=new Intent(ACTION_STATUS);update.setPackage(getPackageName());
+  update.putExtra("phrase_position",current);update.putExtra("phrase_total",total);
+  sendBroadcast(update);
  }
  private void interruptForNavigation(){
   releaseRecognizer();speechGeneration++;promptGeneration++;recognitionGeneration++;
@@ -254,7 +264,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   playedSlots.add(currentSlot);
   lastPhraseLength=phrase.length();prompts++;
   reportText("phrase_key",phraseKey);
-  reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");report("Speaking question / 質問を再生中");
+  reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");reportPhrasePosition(currentSlot);report("Speaking question / 質問を再生中");
   // A device TTS engine may never call onDone. Conversation must still reach
   // SpeechRecognizer. A short independent deadline is not tied to TTS callbacks.
   final int prompt=++promptGeneration;
