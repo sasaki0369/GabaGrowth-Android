@@ -24,8 +24,8 @@ public class MainActivity extends Activity {
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
- private TextView spokenText, translatedText, answerText, playbackState, speedLabel, gapLabel, playCountLabel, pauseResumeButton; private boolean walkPaused=false; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
- private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("accent_counts")&&playCountLabel!=null)playCountLabel.setText(playCountLabel.getText()+" (米国 / 豪州: "+i.getStringExtra("accent_counts")+")");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));if(i.hasExtra("paused")){walkPaused=i.getBooleanExtra("paused",false);refreshPauseResumeButton();}}};
+ private TextView spokenText, translatedText, phrasePositionLabel, answerText, playbackState, speedLabel, gapLabel, playCountLabel, pauseResumeButton; private boolean walkPaused=false; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
+ private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("accent_counts")&&playCountLabel!=null)playCountLabel.setText(playCountLabel.getText()+" (米国 / 豪州: "+i.getStringExtra("accent_counts")+")");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("phrase_position")&&phrasePositionLabel!=null)updatePhrasePosition(i.getIntExtra("phrase_position",0),i.getIntExtra("phrase_total",0));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));if(i.hasExtra("paused")){walkPaused=i.getBooleanExtra("paused",false);refreshPauseResumeButton();}}};
  private String pendingWebTab="home"; private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.0  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.2  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -82,12 +82,27 @@ public class MainActivity extends Activity {
    .setNegativeButton("キャンセル",null)
    .setPositiveButton("リセット",(d,w)->{android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String prefix="resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":";getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove(prefix+"morning").remove(prefix+"evening").apply();Toast.makeText(this,"次回は先頭の未習得項目から再生します",Toast.LENGTH_LONG).show();}).show());
   card("📖  レッスン画面 / Lesson view");
-  label("講師と画面を見ながら学習。再生中も一時停止中も前後に移動できます。",13);
-  heading("Now speaking / 再生中");
+  phrasePositionLabel=label("— / —",16);
+  phrasePositionLabel.setTypeface(null,Typeface.BOLD);
+  phrasePositionLabel.setGravity(Gravity.CENTER);
+  phrasePositionLabel.setPadding(dp(5),dp(2),dp(5),dp(4));
+  heading("English / 英文");
   spokenText=label("学習を開始すると英文が表示されます。",23);
-  spokenText.setTypeface(null,Typeface.BOLD);spokenText.setTextIsSelectable(true);
+  spokenText.setPadding(dp(5),dp(5),dp(5),dp(8));spokenText.setTypeface(null,Typeface.BOLD);spokenText.setTextIsSelectable(true);
   heading("日本語訳 / Translation");
-  translatedText=label("英文の日本語訳を表示します。",20);translatedText.setTextIsSelectable(true);
+  translatedText=label("英文の日本語訳を表示します。",20);translatedText.setPadding(dp(5),dp(5),dp(5),dp(8));translatedText.setTextIsSelectable(true);
+  // Large controls directly beneath the bilingual text, reachable without scrolling past settings.
+  LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);
+  LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(64));controlsLp.setMargins(0,dp(4),0,dp(8));section.addView(controls,controlsLp);
+  TextView previous=lessonControl("⏮\n前へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS)));
+  pauseResumeButton=lessonControl("⏸\n一時停止",controls,()->startService(new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE)));
+  lessonControl("⏭\n次へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.NEXT_PHRASE)));
+  walkPaused=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("walk_paused",false);refreshPauseResumeButton();
+  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");walkPaused=false;refreshPauseResumeButton();});
+  heading("Your answer / あなたの発言");
+  answerText=label("会話モードで発言すると認識結果が表示されます。",16);
+  playbackState=label("Ready",13);
+  heading("学習履歴・習得済み / Progress & mastered");
   playCountLabel=label("英語の再生回数： 0 回",15);
   masteredCheck=new CheckBox(this);masteredCheck.setText("☑ 習得済み：次回からこの英文・単語を再生しない");masteredCheck.setTextColor(NAVY);masteredCheck.setTextSize(15);section.addView(masteredCheck);
   masteredCheck.setOnCheckedChangeListener((button,checked)->{
@@ -97,17 +112,7 @@ public class MainActivity extends Activity {
    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("mastered_phrases",saved).apply();
   });
   button("習得済み一覧を確認・解除 / Review mastered",this::reviewMastered);
-  heading("Your answer / あなたの発言");
-  answerText=label("会話モードで発言すると認識結果が表示されます。",16);
-  playbackState=label("Ready",13);
-  // Large controls directly beneath the bilingual text, reachable without scrolling past settings.
-  LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);
-  LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(76));controlsLp.setMargins(0,dp(8),0,dp(12));section.addView(controls,controlsLp);
-  TextView previous=lessonControl("⏮\n前へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS)));
-  pauseResumeButton=lessonControl("⏸\n一時停止",controls,()->startService(new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE)));
-  lessonControl("⏭\n次へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.NEXT_PHRASE)));
-  walkPaused=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("walk_paused",false);refreshPauseResumeButton();
-  button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");walkPaused=false;refreshPauseResumeButton();});
+
   card("🌏  English accents / 英語のアクセント");
   label("再生する英語を選択（両方選ぶと米国→豪州の順で各1回）",14);
   android.content.SharedPreferences accentPrefs=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);
@@ -245,6 +250,9 @@ public class MainActivity extends Activity {
   }catch(ApiException e){syncMessage("Googleログインエラー: "+e.getStatusCode()+"。SHA-1とOAuth設定をご確認ください。");}
  }
  private float speedValue(int step){return 0.6f+Math.max(0,Math.min(12,step))*0.1f;}
+ private void updatePhrasePosition(int position,int total){
+  if(phrasePositionLabel!=null)phrasePositionLabel.setText(total>0?position+" / "+total:"— / —");
+ }
  private void updateGapLabel(int step){if(gapLabel!=null)gapLabel.setText(String.format(Locale.US,"Pause between phrases: %.1f sec / 発話間隔",Math.max(0,Math.min(20,step))*0.5f));}
  private void updateSpeedLabel(int step){if(speedLabel!=null)speedLabel.setText(String.format(Locale.US,"Speech speed: %.1f×",speedValue(step)));}
  private void setCurrentPhraseKey(String key){
@@ -380,7 +388,7 @@ public class MainActivity extends Activity {
   container.addView(nativeWalkScreen,new LinearLayout.LayoutParams(-1,0,1));container.addView(bottomTabs("walk"));
   setContentView(container);applySafeInsets(container);
  }
-  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));setCurrentPhraseKey(p.getString("last_phrase_key",""));walkPaused=p.getBoolean("walk_paused",false);refreshPauseResumeButton();}
+  @Override protected void onResume(){super.onResume();refreshLoginUI();if(!receiverRegistered){IntentFilter f=new IntentFilter(WalkService.ACTION_STATUS);if(Build.VERSION.SDK_INT>=33)registerReceiver(walkUpdates,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(walkUpdates,f);receiverRegistered=true;}android.content.SharedPreferences p=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE);if(spokenText!=null)spokenText.setText(p.getString("last_phrase","学習を開始すると英文が表示されます。"));if(answerText!=null)answerText.setText(p.getString("last_answer","会話モードで発言すると認識結果が表示されます。"));if(translatedText!=null)translatedText.setText(p.getString("last_translation","英文の日本語訳を表示します。"));setCurrentPhraseKey(p.getString("last_phrase_key",""));updatePhrasePosition(p.getInt("last_phrase_position",0),p.getInt("last_phrase_total",0));walkPaused=p.getBoolean("walk_paused",false);refreshPauseResumeButton();}
  @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(walkUpdates);receiverRegistered=false;}super.onPause();}
  @Override protected void onNewIntent(Intent intent){
    super.onNewIntent(intent);
