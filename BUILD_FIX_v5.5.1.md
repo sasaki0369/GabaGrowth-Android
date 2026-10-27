@@ -1,0 +1,1 @@
+v5.5.1: MainActivityのアクション指定を文字列に変更し、WalkServiceとのコンパイル時定数依存を解消。お気に入り機能の動作には同梱のWalkService.javaの更新も必須。GitHub上のapp/src/main/java/jp/gabagrowth/walk/MainActivity.javaとWalkService.javaの両方を更新してください。APKビルド・実機検証は未実施。
