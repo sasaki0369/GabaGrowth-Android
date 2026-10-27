@@ -24,13 +24,20 @@ public class MainActivity extends Activity {
  private FirebaseSync firebase; private View webContainer; private ScrollView nativeWalkScreen; private LinearLayout root; private TextView result, status; private SpeechRecognizer recognizer; private WebView webView; private boolean recognizing=false;
  private final int NAVY=Color.rgb(20,43,79), BLUE=Color.rgb(26,104,205);
  private final int TEAL=Color.rgb(0,169,167), WHITE=Color.WHITE;
- private TextView spokenText, translatedText, phrasePositionLabel, answerText, playbackState, speedLabel, gapLabel, playCountLabel, pauseResumeButton; private boolean walkPaused=false; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
+ private TextView spokenText, translatedText, phrasePositionLabel, answerText, playbackState, speedLabel, gapLabel, playCountLabel, pauseResumeButton; private boolean walkPaused=false; private SeekBar speedSlider, gapSlider; private CheckBox masteredCheck, favoriteCheck, favoritesOnlyCheck; private String currentPhraseKey=""; private boolean receiverRegistered=false;
  private final BroadcastReceiver walkUpdates=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(i.hasExtra("phrase")&&spokenText!=null)spokenText.setText(i.getStringExtra("phrase"));if(i.hasExtra("phrase_key"))setCurrentPhraseKey(i.getStringExtra("phrase_key"));if(i.hasExtra("play_count")&&playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+i.getStringExtra("play_count")+" 回");if(i.hasExtra("accent_counts")&&playCountLabel!=null)playCountLabel.setText(playCountLabel.getText()+" (米国 / 豪州: "+i.getStringExtra("accent_counts")+")");if(i.hasExtra("translation")&&translatedText!=null)translatedText.setText(i.getStringExtra("translation"));if(i.hasExtra("phrase_position")&&phrasePositionLabel!=null)updatePhrasePosition(i.getIntExtra("phrase_position",0),i.getIntExtra("phrase_total",0));if(i.hasExtra("answer")&&answerText!=null)answerText.setText(i.getStringExtra("answer"));if(i.hasExtra("status")&&playbackState!=null)playbackState.setText(i.getStringExtra("status"));if(i.hasExtra("paused")){walkPaused=i.getBooleanExtra("paused",false);refreshPauseResumeButton();}}};
  private String pendingWebTab="home"; private LinearLayout section; private TextView loginStatus; private LinearLayout loginActions;
  private GradientDrawable gradient(int start,int end,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{start,end});g.setCornerRadius(dp(radius));return g;}
  private TextView label(String value,int size){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(NAVY);t.setPadding(dp(5),dp(12),dp(5),dp(12));section.addView(t);return t;}
  private void button(String title,Runnable task){TextView b=new TextView(this);b.setText(title);b.setTextSize(16);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER_VERTICAL);b.setPadding(dp(18),0,dp(12),0);GradientDrawable bg=gradient(Color.rgb(239,247,255),Color.rgb(225,244,247),18);b.setBackground(bg);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(64));lp.setMargins(0,0,0,dp(10));section.addView(b,lp);b.setOnClickListener(v->task.run());}
  private void refreshPauseResumeButton(){if(pauseResumeButton!=null)pauseResumeButton.setText(walkPaused?"▶\n再開":"⏸\n一時停止");}
+ private long lastNavigationTapAt=0L;
+ private void navigateLesson(String action){
+  long now=android.os.SystemClock.elapsedRealtime();
+  if(now-lastNavigationTapAt<280L)return;
+  lastNavigationTapAt=now;
+  startService(new Intent(this,WalkService.class).setAction(action));
+ }
  private TextView lessonControl(String text,LinearLayout parent,Runnable action){
   TextView b=new TextView(this);b.setText(text);b.setTextSize(17);b.setTypeface(null,Typeface.BOLD);b.setTextColor(NAVY);b.setGravity(Gravity.CENTER);
   b.setBackground(gradient(Color.rgb(222,240,252),Color.rgb(207,235,241),16));
@@ -44,7 +51,7 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.3  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.5  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -86,17 +93,17 @@ public class MainActivity extends Activity {
   phrasePositionLabel.setTypeface(null,Typeface.BOLD);
   phrasePositionLabel.setGravity(Gravity.CENTER);
   phrasePositionLabel.setPadding(dp(5),dp(2),dp(5),dp(4));
+  // Fixed position above the variable-length example and translation.
+  LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);
+  LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(64));controlsLp.setMargins(0,dp(4),0,dp(8));section.addView(controls,controlsLp);
+  lessonControl("⏮\n前へ",controls,()->navigateLesson(WalkService.PREVIOUS));
+  pauseResumeButton=lessonControl("⏸\n一時停止",controls,()->startService(new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE)));
+  lessonControl("⏭\n次へ",controls,()->navigateLesson(WalkService.NEXT_PHRASE));
   heading("English / 英文");
   spokenText=label("学習を開始すると英文が表示されます。",23);
   spokenText.setPadding(dp(5),dp(5),dp(5),dp(8));spokenText.setTypeface(null,Typeface.BOLD);spokenText.setTextIsSelectable(true);
   heading("日本語訳 / Translation");
   translatedText=label("英文の日本語訳を表示します。",20);translatedText.setPadding(dp(5),dp(5),dp(5),dp(8));translatedText.setTextIsSelectable(true);
-  // Large controls directly beneath the bilingual text, reachable without scrolling past settings.
-  LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);
-  LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,dp(64));controlsLp.setMargins(0,dp(4),0,dp(8));section.addView(controls,controlsLp);
-  TextView previous=lessonControl("⏮\n前へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.PREVIOUS)));
-  pauseResumeButton=lessonControl("⏸\n一時停止",controls,()->startService(new Intent(this,WalkService.class).setAction(walkPaused?WalkService.RESUME:WalkService.PAUSE)));
-  lessonControl("⏭\n次へ",controls,()->startService(new Intent(this,WalkService.class).setAction(WalkService.NEXT_PHRASE)));
   walkPaused=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("walk_paused",false);refreshPauseResumeButton();
   button("■   学習を終了 / Stop session",()->{stopService(new Intent(this,WalkService.class));playbackState.setText("Stopped / 学習を終了しました");walkPaused=false;refreshPauseResumeButton();});
   heading("Your answer / あなたの発言");
@@ -111,6 +118,22 @@ public class MainActivity extends Activity {
    if(checked)saved.add(currentPhraseKey);else saved.remove(currentPhraseKey);
    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("mastered_phrases",saved).apply();
   });
+  heading("★ お気に入り / Favorites");
+  favoriteCheck=new CheckBox(this);favoriteCheck.setText("★ この文章をお気に入りに登録");favoriteCheck.setTextColor(NAVY);favoriteCheck.setTextSize(16);section.addView(favoriteCheck);
+  favoritesOnlyCheck=new CheckBox(this);favoritesOnlyCheck.setText("★ お気に入りのみ繰り返し再生");favoritesOnlyCheck.setTextColor(NAVY);favoritesOnlyCheck.setTextSize(16);
+  favoritesOnlyCheck.setChecked(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("favorites_only",false));section.addView(favoritesOnlyCheck);
+  favoritesOnlyCheck.setOnCheckedChangeListener((button,checked)->{
+   java.util.Set<String> favorites=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("favorite_phrases",java.util.Collections.emptySet());
+   if(checked&&favorites.isEmpty()){favoritesOnlyCheck.setChecked(false);Toast.makeText(this,"先に文章をお気に入り登録してください",Toast.LENGTH_LONG).show();return;}
+   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("favorites_only",checked).apply();
+   startService(new Intent(this,WalkService.class).setAction(WalkService.SET_FAVORITES_ONLY).putExtra("enabled",checked));
+  });
+  button("お気に入りをすべて解除 / Clear favorites",()->new AlertDialog.Builder(this).setTitle("お気に入りの解除")
+   .setMessage("登録したお気に入りをすべて解除しますか？")
+   .setNegativeButton("キャンセル",null).setPositiveButton("解除",(d,w)->{
+    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove("favorite_phrases").putBoolean("favorites_only",false).apply();
+    favoritesOnlyCheck.setChecked(false);setCurrentPhraseKey(currentPhraseKey);
+   }).show());
   button("習得済み一覧を確認・解除 / Review mastered",this::reviewMastered);
 
   card("🌏  English accents / 英語のアクセント");
@@ -258,6 +281,16 @@ public class MainActivity extends Activity {
  private void setCurrentPhraseKey(String key){
   currentPhraseKey=key==null?"":key;
   if(playCountLabel!=null)playCountLabel.setText("英語の再生回数： "+getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt("playcount_v43:"+currentPhraseKey,0)+" 回");
+  if(favoriteCheck!=null){favoriteCheck.setOnCheckedChangeListener(null);
+   favoriteCheck.setEnabled(!currentPhraseKey.isEmpty());
+   favoriteCheck.setChecked(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("favorite_phrases",java.util.Collections.emptySet()).contains(currentPhraseKey));
+   favoriteCheck.setOnCheckedChangeListener((button,checked)->{
+    if(currentPhraseKey.isEmpty())return;
+    java.util.Set<String> saved=new java.util.HashSet<>(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("favorite_phrases",java.util.Collections.emptySet()));
+    if(checked)saved.add(currentPhraseKey);else saved.remove(currentPhraseKey);
+    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putStringSet("favorite_phrases",saved).apply();
+   });
+  }
   if(masteredCheck!=null){masteredCheck.setOnCheckedChangeListener(null);
    masteredCheck.setEnabled(!currentPhraseKey.isEmpty());
    masteredCheck.setChecked(getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet()).contains(currentPhraseKey));
