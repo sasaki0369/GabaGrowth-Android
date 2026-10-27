@@ -12,11 +12,11 @@ import java.util.*;
 /** User-started, foreground walking session. Recognition is best effort: Android speech
  * services can refuse background recognition or stop listening on some devices. */
 public class WalkService extends Service implements TextToSpeech.OnInitListener {
- public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS", NEXT_PHRASE="NEXT_PHRASE", PAUSE="PAUSE", RESUME="RESUME", SET_JAPANESE_SPEED="SET_JAPANESE_SPEED", SET_ACCENTS="SET_ACCENTS";
+ public static final String STOP="STOP", START="START", ACTION_STATUS="jp.gabagrowth.walk.STATUS", SET_SPEED="SET_SPEED", SET_GAP="SET_GAP", SET_GAP_MODE="SET_GAP_MODE", SET_TRANSLATION_MODE="SET_TRANSLATION_MODE", PREVIOUS="PREVIOUS", NEXT_PHRASE="NEXT_PHRASE", PAUSE="PAUSE", RESUME="RESUME", SET_JAPANESE_SPEED="SET_JAPANESE_SPEED", SET_ACCENTS="SET_ACCENTS", SET_FAVORITES_ONLY="SET_FAVORITES_ONLY";
  private static final String CHANNEL="walk";
  private final Handler handler=new Handler(Looper.getMainLooper());
  private float speechRate=1.0f, japaneseSpeechRate=1.3f;
- private boolean accentUs=true, accentAu=false;
+ private boolean accentUs=true, accentAu=false; private boolean favoritesOnly=false;
  private boolean paused=false; private long pausedAt=0L;
  private int gapStep=4;private boolean gapAuto=true;private int lastPhraseLength=0;
  private long phraseGapMs(){
@@ -27,11 +27,12 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private SpeechRecognizer recognizer;
  private boolean ready=false, active=false, conversation=false, listening=false, ttsInitFailed=false;
  private boolean awaitingInitialTts=false; private int ttsFailureCount=0;
+ private long lastNavigationAt=0L;
  private final java.util.ArrayList<Integer> playedSlots=new java.util.ArrayList<>();
  private int index=0, currentSlot=-1, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0, promptGeneration=0;
  private String progressKey="";
  private String progressKey(){android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);return "resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":"+mode;}
- private void commitProgress(){if(currentSlot<0||progressKey.isEmpty())return;getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,currentSlot+1).apply();currentSlot=-1;}
+ private void commitProgress(){if(currentSlot<0||progressKey.isEmpty())return;getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,currentSlot+1).apply();}
  private long endAt=0, sessionStartedAt=0;
  private String sessionId=""; private int prompts=0; private boolean sessionSaved=false;
  private String mode="morning"; private org.json.JSONArray qaItems=new org.json.JSONArray();
@@ -63,6 +64,15 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   if(intent!=null&&RESUME.equals(intent.getAction())){resumeWalk();return START_NOT_STICKY;}
   if(intent!=null&&SET_ACCENTS.equals(intent.getAction())){accentUs=intent.getBooleanExtra("us",true);accentAu=intent.getBooleanExtra("au",false);if(!accentUs&&!accentAu)accentUs=true;return START_NOT_STICKY;}
   if(intent!=null&&SET_JAPANESE_SPEED.equals(intent.getAction())){japaneseSpeechRate=Math.max(0.6f,Math.min(2.0f,intent.getFloatExtra("speed",1.3f)));if(japaneseTts!=null&&japaneseReady)japaneseTts.setSpeechRate(japaneseSpeechRate);return START_NOT_STICKY;}
+  if(intent!=null&&SET_FAVORITES_ONLY.equals(intent.getAction())){
+   favoritesOnly=intent.getBooleanExtra("enabled",false);
+   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("favorites_only",favoritesOnly).apply();
+   if(active){interruptForNavigation();index=Math.max(0,currentSlot>=0?currentSlot:index);currentSlot=-1;
+    if(paused){int target=findEligibleSlot(index,1);if(target>=0){showPhraseAt(target);report("Paused / お気に入りモードを更新しました");}else report("No matching phrases / 対象の文章がありません");}
+    else handler.post(this::next);
+   }
+   return START_NOT_STICKY;
+  }
   if(intent!=null&&PREVIOUS.equals(intent.getAction())){previousPhrase();return START_NOT_STICKY;}
   if(intent!=null&&NEXT_PHRASE.equals(intent.getAction())){nextPhrase();return START_NOT_STICKY;}
   if(intent!=null&&SET_SPEED.equals(intent.getAction())){speechRate=Math.max(0.6f,Math.min(1.8f,intent.getFloatExtra("speed",1f)));if(tts!=null&&ready)tts.setSpeechRate(speechRate);return START_NOT_STICKY;}
@@ -88,9 +98,10 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   conversation=intent!=null&&intent.getBooleanExtra("conversation",false);
   endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
   qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.load(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week"))))qaItems.put(q);}}catch(Exception ignored){}
+  favoritesOnly=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("favorites_only",false);
   playedSlots.clear();progressKey=progressKey();index=Math.max(0,getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt(progressKey,0));currentSlot=-1;
   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("walk_paused",false).apply();reportPauseState(false);
-  active=true;paused=false;pausedAt=0L;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
+  active=true;paused=false;pausedAt=0L;lastNavigationAt=0L;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel(CHANNEL,"Walk & Talk",NotificationManager.IMPORTANCE_LOW));
   Intent stop=new Intent(this,WalkService.class).setAction(STOP);
@@ -188,7 +199,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
   java.util.Set<String> mastered=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet());
   for(int offset=0;offset<available;offset++){
-   int slot=start+offset;int normalized=Math.floorMod(slot,available);
+   int slot=Math.floorMod(start+offset,available);int normalized=slot;
    String phrase,translation,key;
    if(qaItems.length()>0){
     org.json.JSONObject q=qaItems.optJSONObject(normalized%qaItems.length());if(q==null)continue;
@@ -196,7 +207,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     phrase=q.optString(answer?"answer_en":"question_en");translation=q.optString(answer?"answer_ja":"question_ja");
     key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(answer?"answer":"question");
    }else{phrase=lines()[normalized];translation=translate(phrase);key="default:"+phrase;}
-   if(phrase.trim().isEmpty()||mastered.contains(key))continue;
+   if(phrase.trim().isEmpty()||mastered.contains(key)||(favoritesOnly&&!isFavorite(key)))continue;
    currentSlot=slot;index=slot+1;
    reportText("phrase_key",key);reportText("phrase",phrase);reportText("translation",translation);reportText("answer","—");reportPhrasePosition(slot);
    getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,slot).apply();
@@ -219,35 +230,41 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   handler.removeCallbacksAndMessages(null);
   if(tts!=null)tts.stop();if(japaneseTts!=null)japaneseTts.stop();
  }
- private void previousPhrase(){
-  if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
-  if(playedSlots.size()<2){report("No previous phrase in this session / この回に前の文章はありません");return;}
-  interruptForNavigation();
-  playedSlots.remove(playedSlots.size()-1);
-  int target=playedSlots.get(playedSlots.size()-1);
-  index=target;currentSlot=-1;
-  if(paused){
-   if(showPhraseAt(target))report("Paused / 一時停止中・前の文章を表示中");
-  }else{
-   playedSlots.remove(playedSlots.size()-1);
-   report("Replaying previous phrase / 一つ前の文章を再生します");handler.post(this::next);
-  }
+ private boolean allowNavigation(){
+  long now=SystemClock.elapsedRealtime();
+  if(now-lastNavigationAt<250L)return false;
+  lastNavigationAt=now;return true;
  }
- private void nextPhrase(){
-  if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
-  interruptForNavigation();
-  int target=index;
-  if(currentSlot>=0){target=currentSlot+1;if(!playedSlots.isEmpty())playedSlots.remove(playedSlots.size()-1);}
-  currentSlot=-1;index=target;
-  if(paused){
-   if(showPhraseAt(target)){
-    playedSlots.add(currentSlot);
-    report("Paused / 一時停止中・次の文章を表示中");
-   }else report("All selected phrases mastered / 未習得の文章がありません");
-  }else{
-   report("Skipping to next phrase / 次の文章へ進みます");handler.post(this::next);
+ private boolean isFavorite(String key){return getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("favorite_phrases",java.util.Collections.emptySet()).contains(key);}
+ private int findEligibleSlot(int start,int step){
+  int total=phraseCount();if(total<=0)return -1;
+  String direction=getSharedPreferences(QaBank.PREF,MODE_PRIVATE).getString("direction","ask");
+  java.util.Set<String> mastered=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getStringSet("mastered_phrases",java.util.Collections.emptySet());
+  for(int offset=0;offset<total;offset++){
+   int slot=Math.floorMod(start+offset*step,total);String phrase,key;
+   if(qaItems.length()>0){org.json.JSONObject q=qaItems.optJSONObject(slot%qaItems.length());if(q==null)continue;
+    boolean answer="answer".equals(direction)||("both".equals(direction)&&slot>=qaItems.length());
+    phrase=q.optString(answer?"answer_en":"question_en");key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(answer?"answer":"question");
+   }else{phrase=lines()[slot];key="default:"+phrase;}
+   if(!phrase.trim().isEmpty()&&!mastered.contains(key)&&(!favoritesOnly||isFavorite(key)))return slot;
   }
+  return -1;
  }
+ private void movePhrase(int direction){
+  if(!active){report("Start a lesson first / 先に学習を開始してください");return;}
+  if(!allowNavigation())return;
+  // Navigate relative to the displayed slot, never the playback history or the
+  // asynchronously advanced index. This prevents jumping several phrases back.
+  int base=currentSlot>=0?Math.floorMod(currentSlot,Math.max(1,phraseCount())):
+   Math.floorMod(index-1,Math.max(1,phraseCount()));
+  int target=findEligibleSlot(base+direction,direction);
+  if(target<0){report("No matching phrases / 対象の文章がありません");return;}
+  interruptForNavigation();index=target;currentSlot=-1;
+  if(paused){showPhraseAt(target);report("Paused / 一時停止中・文章を切り替えました");}
+  else {report("Navigating / 文章を切り替えます");handler.post(this::next);}
+ }
+ private void previousPhrase(){movePhrase(-1);}
+ private void nextPhrase(){movePhrase(1);}
  private void next(){
   if(!active||paused)return;
   if(SystemClock.elapsedRealtime()>=endAt){finish();return;}
@@ -263,7 +280,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     candidate=q.optString(useAnswer?"answer_en":"question_en");candidateTranslation=q.optString(useAnswer?"answer_ja":"question_ja");
     key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(useAnswer?"answer":"question");
    }else{candidate=lines()[index++%lines().length];candidateTranslation=translate(candidate);key="default:"+candidate;}
-   if(candidate.trim().isEmpty()||mastered.contains(key))continue;
+   if(candidate.trim().isEmpty()||mastered.contains(key)||(favoritesOnly&&!isFavorite(key)))continue;
    phrase=candidate;translation=candidateTranslation;phraseKey=key;currentSlot=index-1;break;
   }
   if(phrase==null){report("All selected phrases mastered / 対象の教材はすべて習得済みです");reportText("phrase","再生対象の英文・単語がありません。習得済みのチェックを解除してください。");reportText("translation","");reportText("phrase_key","");finish();return;}
