@@ -46,12 +46,17 @@ public class MainActivity extends Activity {
  }
  private void heading(String text){TextView t=new TextView(this);t.setText(text);t.setTextSize(20);t.setTypeface(null,Typeface.BOLD);t.setTextColor(NAVY);t.setPadding(0,dp(6),0,dp(15));section.addView(t);}
  private void card(String title){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(18),dp(16),dp(18),dp(14));c.setBackground(gradient(WHITE,Color.rgb(245,250,255),24));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(16));root.addView(c,lp);section=c;heading(title);}
+ private void showManualPhrases(){
+  org.json.JSONArray items=QaBank.manual(this);if(items.length()==0){Toast.makeText(this,"登録された例文はありません",Toast.LENGTH_SHORT).show();return;}
+  String[] names=new String[items.length()];for(int i=0;i<items.length();i++){org.json.JSONObject q=items.optJSONObject(i);names[i]=(i+1)+". "+(q==null?"":q.optString("question_en"));}
+  new AlertDialog.Builder(this).setTitle("個別例文（タップして削除）").setItems(names,(dialog,which)->{org.json.JSONObject q=items.optJSONObject(which);new AlertDialog.Builder(this).setTitle("この例文を削除しますか？").setMessage(q==null?"":q.optString("question_en")+"\n"+q.optString("question_ja")).setNegativeButton("キャンセル",null).setPositiveButton("削除",(d,w)->{QaBank.deleteManual(this,which);recreate();}).show();}).setNegativeButton("閉じる",null).show();
+ }
  private void hero(){
   LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setPadding(dp(22),dp(30),dp(22),dp(28));hero.setBackground(gradient(Color.rgb(5,32,84),Color.rgb(5,132,177),28));
   LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,0,0,dp(18));root.addView(hero,hp);
   TextView brand=new TextView(this);brand.setText("Gaba ✈\nGrowth");brand.setTextSize(39);brand.setTypeface(null,Typeface.BOLD);brand.setTextColor(WHITE);brand.setLineSpacing(-dp(8),1f);hero.addView(brand);
   TextView tagline=new TextView(this);tagline.setText("ENGLISH FOR GLOBAL BUSINESS");tagline.setTextColor(Color.rgb(208,235,255));tagline.setTextSize(12);tagline.setLetterSpacing(.09f);tagline.setPadding(0,dp(10),0,dp(18));hero.addView(tagline);
-  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.5.1  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
+  TextView ver=new TextView(this);ver.setText("Walk & Talk  •  Ver.5.6  •  English (US/AU)");ver.setTextColor(WHITE);ver.setTextSize(14);hero.addView(ver);
   TextView description=new TextView(this);description.setText("歩く時間が、英語の成長時間に。\n通勤の10分を、世界へつながる学びに。");description.setTextSize(15);description.setTextColor(WHITE);description.setPadding(0,dp(20),0,0);hero.addView(description);
  }
  @Override public void onCreate(Bundle state){super.onCreate(state);firebase=new FirebaseSync(this);getWindow().setStatusBarColor(Color.rgb(10,46,83));getWindow().setNavigationBarColor(Color.rgb(236,245,251));
@@ -70,6 +75,17 @@ public class MainActivity extends Activity {
   datasetPicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){}public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){String chosen=datasetIds.get(pos);if(!chosen.equals(QaBank.activeId(MainActivity.this))){QaBank.select(MainActivity.this,chosen);recreate();}}});
   button("選択中のCSVを削除 / Delete selected CSV",()->{String id=QaBank.activeId(this);if(QaBank.DEFAULT_ID.equals(id)){Toast.makeText(this,"初期教材は削除できません",Toast.LENGTH_SHORT).show();return;}new AlertDialog.Builder(this).setTitle("教材を削除しますか？").setMessage("選択したCSV教材だけを削除します。他の教材は残ります。").setNegativeButton("キャンセル",null).setPositiveButton("削除",(d,w)->{QaBank.remove(this,id);recreate();}).show();});
   button("CSVファイルを取り込む / Import CSV",()->{Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);pick.addCategory(Intent.CATEGORY_OPENABLE);pick.setType("text/*");pick.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"text/csv","text/comma-separated-values","text/plain","application/vnd.ms-excel"});startActivityForResult(pick,CSV_IMPORT);});
+  card("✍ 個別例文の追加 / My phrases");
+  label("CSVとは別に英文と日本語訳を保存します。端末内に保持されます。",13);
+  android.widget.EditText manualEnglish=new android.widget.EditText(this);manualEnglish.setHint("English / 英文");manualEnglish.setMinLines(2);section.addView(manualEnglish);
+  android.widget.EditText manualJapanese=new android.widget.EditText(this);manualJapanese.setHint("日本語訳 / Translation");manualJapanese.setMinLines(2);section.addView(manualJapanese);
+  button("＋ 例文を保存 / Save phrase",()->{try{QaBank.addManual(this,manualEnglish.getText().toString(),manualJapanese.getText().toString());Toast.makeText(this,"例文を保存しました",Toast.LENGTH_SHORT).show();recreate();}catch(Exception e){new AlertDialog.Builder(this).setMessage(e.getMessage()).setPositiveButton("OK",null).show();}});
+  org.json.JSONArray ownRows=QaBank.manual(this);label("登録済み: "+ownRows.length()+" 件",14);
+  button("登録済み例文を確認・削除",()->showManualPhrases());
+  card("🎚 再生する教材 / Playback source");
+  android.widget.RadioGroup sourceGroup=new android.widget.RadioGroup(this);sourceGroup.setOrientation(android.widget.RadioGroup.VERTICAL);section.addView(sourceGroup);
+  String[] sourceCodes={"csv","manual","both"};String[] sourceNames={"CSVのみ","個別追加のみ","CSVと個別追加の両方"};
+  for(int si=0;si<3;si++){final String code=sourceCodes[si];android.widget.RadioButton rb=new android.widget.RadioButton(this);rb.setText(sourceNames[si]);rb.setTextSize(16);sourceGroup.addView(rb);if(code.equals(QaBank.source(this)))rb.setChecked(true);rb.setOnClickListener(v->{QaBank.setSource(this,code);Toast.makeText(this,"再生対象: "+rb.getText()+"（次回開始から適用）",Toast.LENGTH_SHORT).show();});}
   label("訪問先・週・練習方向を選び、Walk & Talkで質問と回答を練習できます。",13);
   card("🎧  Walk & Talk");
   label("教材: NSW Q&A / 取り込んだCSV",14);
@@ -87,7 +103,7 @@ public class MainActivity extends Activity {
    .setTitle("最初から再生しますか？")
    .setMessage("選択中の教材・絞り込み条件の朝と帰りの再生位置をリセットします。習得済みチェックは維持されます。")
    .setNegativeButton("キャンセル",null)
-   .setPositiveButton("リセット",(d,w)->{android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String prefix="resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":";getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove(prefix+"morning").remove(prefix+"evening").apply();Toast.makeText(this,"次回は先頭の未習得項目から再生します",Toast.LENGTH_LONG).show();}).show());
+   .setPositiveButton("リセット",(d,w)->{android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String prefix="resume_v42:"+QaBank.activeId(this)+":"+QaBank.source(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":";getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().remove(prefix+"morning").remove(prefix+"evening").apply();Toast.makeText(this,"次回は先頭の未習得項目から再生します",Toast.LENGTH_LONG).show();}).show());
   card("📖  レッスン画面 / Lesson view");
   phrasePositionLabel=label("— / —",16);
   phrasePositionLabel.setTypeface(null,Typeface.BOLD);

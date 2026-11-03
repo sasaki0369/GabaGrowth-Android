@@ -42,6 +42,20 @@ public final class QaBank {
   try{JSONObject entry=new JSONObject();entry.put("name",filename);entry.put("rows",rows);lib.put(id,entry);}catch(Exception ex){throw new IllegalArgumentException(ex);}
   prefs(c).edit().putString(LIBRARY,lib.toString()).putString("active_dataset",id).apply();
  }
+ public static final String SOURCE_PREF="lesson_source_v56";
+ public static String source(Context c){return prefs(c).getString(SOURCE_PREF,"both");}
+ public static void setSource(Context c,String source){prefs(c).edit().putString(SOURCE_PREF,source).apply();}
+ public static JSONArray manual(Context c){try{return new JSONArray(prefs(c).getString("manual_rows_v56","[]"));}catch(Exception e){return new JSONArray();}}
+ public static void addManual(Context c,String english,String japanese){
+  english=english.trim();japanese=japanese.trim();
+  if(english.isEmpty()||japanese.isEmpty())throw new IllegalArgumentException("英文と日本語訳を入力してください");
+  JSONArray rows=manual(c);JSONObject q=new JSONObject();
+  try{for(String h:HEADERS)q.put(h,"");q.put("id","manual-"+java.util.UUID.randomUUID());q.put("category","Manual");q.put("organization","MANUAL");q.put("question_en",english);q.put("question_ja",japanese);q.put("answer_en",english);q.put("answer_ja",japanese);rows.put(q);}catch(Exception e){throw new IllegalArgumentException(e);}
+  prefs(c).edit().putString("manual_rows_v56",rows.toString()).apply();
+ }
+ public static void deleteManual(Context c,int index){JSONArray rows=manual(c),kept=new JSONArray();for(int i=0;i<rows.length();i++)if(i!=index)kept.put(rows.opt(i));prefs(c).edit().putString("manual_rows_v56",kept.toString()).apply();}
+ public static JSONArray selected(Context c){String source=source(c);JSONArray result=new JSONArray();if(!"manual".equals(source)){JSONArray csv=load(c);for(int i=0;i<csv.length();i++)result.put(csv.opt(i));}if(!"csv".equals(source)){JSONArray own=manual(c);for(int i=0;i<own.length();i++)result.put(own.opt(i));}return result;}
+ public static String itemKey(Context c,JSONObject q,String direction){String id=q.optString("id");return "qa:"+(id.startsWith("manual-")?"__manual__":activeId(c))+":"+id+":"+direction;}
  public static JSONArray load(Context c){try{
   String id=activeId(c);
   if(!DEFAULT_ID.equals(id)){JSONObject entry=library(c).optJSONObject(id);if(entry!=null)return entry.optJSONArray("rows");}

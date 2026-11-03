@@ -31,7 +31,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
  private final java.util.ArrayList<Integer> playedSlots=new java.util.ArrayList<>();
  private int index=0, currentSlot=-1, errors=0, successes=0, recognitionGeneration=0, speechGeneration=0, promptGeneration=0;
  private String progressKey="";
- private String progressKey(){android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);return "resume_v42:"+QaBank.activeId(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":"+mode;}
+ private String progressKey(){android.content.SharedPreferences p=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);return "resume_v42:"+QaBank.activeId(this)+":"+QaBank.source(this)+":"+p.getString("organization","ALL")+":"+p.getString("week","")+":"+p.getString("direction","ask")+":"+mode;}
  private void commitProgress(){if(currentSlot<0||progressKey.isEmpty())return;getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putInt(progressKey,currentSlot+1).apply();}
  private long endAt=0, sessionStartedAt=0;
  private String sessionId=""; private int prompts=0; private boolean sessionSaved=false;
@@ -97,8 +97,9 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
   int minutes=intent==null?10:intent.getIntExtra("minutes",10);
   conversation=intent!=null&&intent.getBooleanExtra("conversation",false);
   endAt=SystemClock.elapsedRealtime()+Math.max(1,Math.min(30,minutes))*60000L;
-  qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.load(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week"))))qaItems.put(q);}}catch(Exception ignored){}
+  qaItems=new org.json.JSONArray();try{org.json.JSONArray all=QaBank.selected(this);android.content.SharedPreferences settings=getSharedPreferences(QaBank.PREF,MODE_PRIVATE);String org=settings.getString("organization","ALL"),week=settings.getString("week","");for(int k=0;k<all.length();k++){org.json.JSONObject q=all.getJSONObject(k);if(q.optString("id").startsWith("manual-")||(("ALL".equals(org)||org.equals(q.optString("organization")))&&(week.isEmpty()||week.equals(q.optString("week")))))qaItems.put(q);}}catch(Exception ignored){}
   favoritesOnly=getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getBoolean("favorites_only",false);
+  if(qaItems.length()==0){report("No phrases in selected source / 選択した教材に例文がありません");reportText("phrase","再生する例文がありません。教材の選択を確認してください。");stopSelf();return START_NOT_STICKY;}
   playedSlots.clear();progressKey=progressKey();index=Math.max(0,getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).getInt(progressKey,0));currentSlot=-1;
   getSharedPreferences("gaba_walk_v1",MODE_PRIVATE).edit().putBoolean("walk_paused",false).apply();reportPauseState(false);
   active=true;paused=false;pausedAt=0L;lastNavigationAt=0L;errors=0;successes=0;prompts=0;sessionSaved=false;sessionStartedAt=System.currentTimeMillis();sessionId=java.util.UUID.randomUUID().toString();
@@ -205,7 +206,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     org.json.JSONObject q=qaItems.optJSONObject(normalized%qaItems.length());if(q==null)continue;
     boolean answer="answer".equals(direction)||("both".equals(direction)&&normalized>=qaItems.length());
     phrase=q.optString(answer?"answer_en":"question_en");translation=q.optString(answer?"answer_ja":"question_ja");
-    key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(answer?"answer":"question");
+    key=QaBank.itemKey(this,q,answer?"answer":"question");
    }else{phrase=lines()[normalized];translation=translate(phrase);key="default:"+phrase;}
    if(phrase.trim().isEmpty()||mastered.contains(key)||(favoritesOnly&&!isFavorite(key)))continue;
    currentSlot=slot;index=slot+1;
@@ -244,7 +245,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
    int slot=Math.floorMod(start+offset*step,total);String phrase,key;
    if(qaItems.length()>0){org.json.JSONObject q=qaItems.optJSONObject(slot%qaItems.length());if(q==null)continue;
     boolean answer="answer".equals(direction)||("both".equals(direction)&&slot>=qaItems.length());
-    phrase=q.optString(answer?"answer_en":"question_en");key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(answer?"answer":"question");
+    phrase=q.optString(answer?"answer_en":"question_en");key=QaBank.itemKey(this,q,answer?"answer":"question");
    }else{phrase=lines()[slot];key="default:"+phrase;}
    if(!phrase.trim().isEmpty()&&!mastered.contains(key)&&(!favoritesOnly||isFavorite(key)))return slot;
   }
@@ -278,7 +279,7 @@ public class WalkService extends Service implements TextToSpeech.OnInitListener 
     int slot=index++%available;org.json.JSONObject q=qaItems.optJSONObject(slot%qaItems.length());
     boolean useAnswer="answer".equals(direction)||("both".equals(direction)&&slot>=qaItems.length());
     candidate=q.optString(useAnswer?"answer_en":"question_en");candidateTranslation=q.optString(useAnswer?"answer_ja":"question_ja");
-    key="qa:"+QaBank.activeId(this)+":"+q.optString("id")+":"+(useAnswer?"answer":"question");
+    key=QaBank.itemKey(this,q,useAnswer?"answer":"question");
    }else{candidate=lines()[index++%lines().length];candidateTranslation=translate(candidate);key="default:"+candidate;}
    if(candidate.trim().isEmpty()||mastered.contains(key)||(favoritesOnly&&!isFavorite(key)))continue;
    phrase=candidate;translation=candidateTranslation;phraseKey=key;currentSlot=index-1;break;
